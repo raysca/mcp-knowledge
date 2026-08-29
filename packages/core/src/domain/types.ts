@@ -50,3 +50,43 @@ export type DocumentRevision = {
   chunkCount: number;
   createdAt: Date;
 };
+
+export type JobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "retrying"
+  | "cancelled";
+
+export type IngestionJob = {
+  id: string;
+  documentId: string;
+  revisionId: string;
+  status: JobStatus;
+  attempt: number;
+  maxAttempts: number;
+  lockedBy?: string;
+  lockedAt?: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type StoredChunk = {
+  id: string;
+  collectionId?: string;
+  documentId: string;
+  revisionId: string;
+  sequence: number;
+  content: string;
+  embeddingText: string;
+  headingPath: string[];
+  location?: Record<string, unknown>;
+  tokenCount: number;
+  metadata: Record<string, unknown>;
+  contentHash: string;
+  createdAt: Date;
+};

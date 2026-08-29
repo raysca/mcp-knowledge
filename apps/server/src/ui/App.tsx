@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "./components/ui/table.tsx";
 
-type Page = "documents" | "collections";
+type Page = "documents" | "collections" | "jobs";
 
 type DocumentRow = {
   id: string;
@@ -20,6 +20,7 @@ type DocumentRow = {
   sizeBytes: number;
   collectionId: string | null;
   createdAt: string;
+  latestError: string | null;
 };
 
 type CollectionRow = {
@@ -29,11 +30,20 @@ type CollectionRow = {
 };
 
 export function App() {
-  const path = location.pathname === "/collections" ? "collections" : "documents";
+  const path =
+    location.pathname === "/collections"
+      ? "collections"
+      : location.pathname === "/jobs"
+        ? "jobs"
+        : "documents";
   const [page, setPage] = useState<Page>(path);
 
   function go(next: Page) {
-    history.pushState({}, "", next === "collections" ? "/collections" : "/");
+    history.pushState(
+      {},
+      "",
+      next === "collections" ? "/collections" : next === "jobs" ? "/jobs" : "/",
+    );
     setPage(next);
   }
 
@@ -52,10 +62,15 @@ export function App() {
             <Tab active={page === "collections"} onClick={() => go("collections")}>
               Collections
             </Tab>
+            <Tab active={page === "jobs"} onClick={() => go("jobs")}>
+              Jobs
+            </Tab>
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">{page === "documents" ? <DocumentsPage /> : <CollectionsPage />}</main>
+      <main className="mx-auto max-w-5xl px-4 py-8">
+        {page === "documents" ? <DocumentsPage /> : page === "collections" ? <CollectionsPage /> : <JobsPage />}
+      </main>
     </div>
   );
 }
@@ -102,6 +117,8 @@ function DocumentsPage() {
 
   useEffect(() => {
     void reload();
+    const t = setInterval(() => void reload(), 2000);
+    return () => clearInterval(t);
   }, [reload]);
 
   async function onUpload(file: File | undefined) {
@@ -135,7 +152,7 @@ function DocumentsPage() {
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-slate">
-          Files stay <span className="font-mono text-ink">pending</span> until parsing lands. Upload, download, or remove them here.
+          Files move from processing to ready after parse and chunk. Failures show on Jobs.
         </p>
         <label className="inline-flex cursor-pointer items-center">
           <input
@@ -173,6 +190,7 @@ function DocumentsPage() {
                   <span className="inline-block border border-stamp px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-stamp">
                     {doc.status}
                   </span>
+                  {doc.latestError ? <div className="mt-1 max-w-xs text-xs text-stamp">{doc.latestError}</div> : null}
                 </TableCell>
                 <TableCell className="font-mono text-xs">{doc.sizeBytes} B</TableCell>
                 <TableCell className="text-right">
@@ -284,6 +302,84 @@ function CollectionsPage() {
           <Button onClick={() => void onCreate()}>Create</Button>
         </div>
       </Dialog>
+    </section>
+  );
+}
+
+function JobsPage() {
+  const [items, setItems] = useState<
+    Array<{ id: string; documentId: string; status: string; attempt: number; error?: string | null }>
+  >([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    const res = await fetch("/api/v1/jobs");
+    const data = (await res.json()) as {
+      items?: Array<{ id: string; documentId: string; status: string; attempt: number; error?: string | null }>;
+      error?: { message: string };
+    };
+    if (!res.ok) {
+      setError(data.error?.message ?? "Could not load jobs.");
+      return;
+    }
+    setItems(data.items ?? []);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    void reload();
+    const t = setInterval(() => void reload(), 2000);
+    return () => clearInterval(t);
+  }, [reload]);
+
+  async function onRetry(id: string) {
+    const res = await fetch(`/api/v1/jobs/${id}/retry`, { method: "POST" });
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: { message: string } };
+      setError(data.error?.message ?? "Retry failed.");
+      return;
+    }
+    await reload();
+  }
+
+  return (
+    <section>
+      <p className="mb-4 text-slate">Queued, running, and failed ingestion jobs. Retry a failed job to re-parse the same revision.</p>
+      {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
+      {items.length === 0 ? (
+        <p className="border border-dashed border-rule px-4 py-12 text-center text-slate">No jobs yet.</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Job</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Attempt</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((job) => (
+              <TableRow key={job.id}>
+                <TableCell>
+                  <div className="font-mono text-[11px]">{job.id}</div>
+                  <div className="font-mono text-[11px] text-slate">{job.documentId}</div>
+                  {job.error ? <div className="mt-1 text-xs text-stamp">{job.error}</div> : null}
+                </TableCell>
+                <TableCell className="font-mono text-[11px] uppercase">{job.status}</TableCell>
+                <TableCell className="font-mono text-xs">{job.attempt}</TableCell>
+                <TableCell className="text-right">
+                  {job.status === "failed" ? (
+                    <Button variant="outline" size="sm" onClick={() => void onRetry(job.id)}>
+                      Retry
+                    </Button>
+                  ) : null}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </section>
   );
 }

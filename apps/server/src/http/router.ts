@@ -143,6 +143,39 @@ export async function handleRequest(req: Request, svc: AppServices): Promise<Res
       });
     }
 
+    const chunksMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/chunks$/);
+    if (chunksMatch && req.method === "GET") {
+      const id = decodeURIComponent(chunksMatch[1]!);
+      const limit = clampLimit(url.searchParams.get("limit"), svc.env.MAX_LIST_LIMIT, 50);
+      const result = await svc.documents.chunks(id, {
+        limit,
+        cursor: url.searchParams.get("cursor") ?? undefined,
+      });
+      return json(result, 200, requestId);
+    }
+
+    const normalizedMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/normalized$/);
+    if (normalizedMatch && req.method === "GET") {
+      const id = decodeURIComponent(normalizedMatch[1]!);
+      return json(await svc.documents.normalized(id), 200, requestId);
+    }
+
+    const reindexMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/reindex$/);
+    if (reindexMatch && req.method === "POST") {
+      const id = decodeURIComponent(reindexMatch[1]!);
+      const job = await svc.documents.reindex(id);
+      return json(job, 202, requestId);
+    }
+
+    if (url.pathname === "/api/v1/jobs" && req.method === "GET") {
+      return json({ items: await svc.documents.listJobs() }, 200, requestId);
+    }
+    const retryMatch = url.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/retry$/);
+    if (retryMatch && req.method === "POST") {
+      const id = decodeURIComponent(retryMatch[1]!);
+      return json(await svc.documents.retryJob(id), 202, requestId);
+    }
+
     const docMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)$/);
     if (docMatch) {
       const id = decodeURIComponent(docMatch[1]!);

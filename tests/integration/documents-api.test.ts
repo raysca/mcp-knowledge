@@ -10,6 +10,8 @@ describe("documents API", () => {
   let server: Bun.Server<undefined>;
   let base = "";
 
+  let app: Awaited<ReturnType<typeof createApp>>;
+
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-knowledge-"));
     const env = loadEnv({
@@ -17,12 +19,13 @@ describe("documents API", () => {
       STORAGE_PATH: join(dir, "blobs"),
       MAX_UPLOAD_BYTES: "64",
     });
-    const app = await createApp(env);
+    app = await createApp(env);
     server = Bun.serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
     base = `http://127.0.0.1:${server.port}`;
   });
 
   afterAll(async () => {
+    app.stop();
     server.stop(true);
     await rm(dir, { recursive: true, force: true });
   });
@@ -50,20 +53,20 @@ describe("documents API", () => {
       duplicate: boolean;
     };
     expect(body.id.startsWith("doc_")).toBe(true);
-    expect(body.status).toBe("pending");
+    expect(["processing", "ready"]).toContain(body.status);
     expect(body.revision).toBe(1);
     expect(body.duplicate).toBe(false);
 
     const list = await fetch(`${base}/api/v1/documents`);
     expect(list.status).toBe(200);
     const listed = (await list.json()) as { items: Array<{ id: string; status: string }> };
-    expect(listed.items.some((d) => d.id === body.id && d.status === "pending")).toBe(true);
+    expect(listed.items.some((d) => d.id === body.id)).toBe(true);
 
     const got = await fetch(`${base}/api/v1/documents/${body.id}`);
     expect(got.status).toBe(200);
     const doc = (await got.json()) as { originalFilename: string; status: string };
     expect(doc.originalFilename).toBe("note.txt");
-    expect(doc.status).toBe("pending");
+    expect(["processing", "ready"]).toContain(doc.status);
 
     const file = await fetch(`${base}/api/v1/documents/${body.id}/file`);
     expect(file.status).toBe(200);

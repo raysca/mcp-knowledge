@@ -20,6 +20,7 @@
       "dependencies": {
         "@mcp-knowledge/core": "workspace:*",
         "@mcp-knowledge/db": "workspace:*",
+        "@mcp-knowledge/parser": "workspace:*",
         "@mcp-knowledge/storage": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -37,6 +38,9 @@
     "packages/core": {
       "name": "@mcp-knowledge/core",
       "version": "0.0.0",
+      "dependencies": {
+        "@huggingface/transformers": "^4.2.0",
+      },
     },
     "packages/db": {
       "name": "@mcp-knowledge/db",
@@ -54,6 +58,9 @@
     "packages/parser": {
       "name": "@mcp-knowledge/parser",
       "version": "0.0.0",
+      "dependencies": {
+        "@mcp-knowledge/core": "workspace:*",
+      },
     },
     "packages/retrieval": {
       "name": "@mcp-knowledge/retrieval",

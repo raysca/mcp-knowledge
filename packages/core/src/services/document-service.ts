@@ -67,8 +67,11 @@ export class DocumentService {
       metadata: input.metadata ?? {},
       storageKey,
     });
+    await this.repo.enqueueJob({ documentId, revisionId });
+    await this.repo.setDocumentStatus(documentId, "processing", null);
+    const document = await this.get(documentId);
     return {
-      document: created.document,
+      document,
       revision: created.revision,
       duplicate: false,
       status: 202,
@@ -103,5 +106,41 @@ export class DocumentService {
     await this.get(id);
     await this.repo.softDeleteDocument(id);
     if (key) await this.blobs.delete(key);
+  }
+
+  async chunks(id: string, q: { limit: number; cursor?: string }) {
+    await this.get(id);
+    return this.repo.listChunks(id, q);
+  }
+
+  async normalized(id: string): Promise<unknown> {
+    const doc = await this.get(id);
+    if (!doc.currentRevisionId) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
+    const revision = await this.repo.getRevision(doc.currentRevisionId);
+    if (!revision?.normalizedStorageKey) {
+      throw new AppError("DOCUMENT_NOT_FOUND", "Normalized document is not ready.", 404);
+    }
+    const blob = await this.blobs.get(revision.normalizedStorageKey);
+    return JSON.parse(await blob.text());
+  }
+
+  async reindex(id: string) {
+    const doc = await this.get(id);
+    if (!doc.currentRevisionId) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
+    const job = await this.repo.enqueueJob({ documentId: id, revisionId: doc.currentRevisionId });
+    await this.repo.setDocumentStatus(id, "processing", null);
+    return job;
+  }
+
+  listJobs() {
+    return this.repo.listJobs();
+  }
+
+  async retryJob(id: string) {
+    const job = await this.repo.getJob(id);
+    if (!job) throw new AppError("JOB_NOT_FOUND", "Job was not found.", 404);
+    const retried = await this.repo.retryJob(id);
+    await this.repo.setDocumentStatus(retried.documentId, "processing", null);
+    return retried;
   }
 }

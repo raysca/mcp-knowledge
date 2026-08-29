@@ -1,4 +1,16 @@
-import type { Collection, Document } from "./domain/types.ts";
+import type { Collection, Document, DocumentRevision, IngestionJob, StoredChunk } from "./domain/types.ts";
+import type { NormalizedDocument } from "./domain/normalized.ts";
+
+export type DocumentParser = {
+  name: string;
+  version: string;
+  supports(input: { mimeType?: string; extension?: string }): boolean;
+  parse(input: {
+    data: Blob;
+    filename: string;
+    mimeType?: string;
+  }): Promise<NormalizedDocument>;
+};
 
 export type ListDocumentsQuery = {
   collectionId?: string;
@@ -33,6 +45,36 @@ export type KnowledgeRepository = {
   getLiveDocumentBySha256(sha256: string): Promise<Document | null>;
   listDocuments(q: ListDocumentsQuery): Promise<{ items: Document[]; nextCursor?: string }>;
   getRevisionStorageKey(documentId: string): Promise<string | null>;
+  getRevision(revisionId: string): Promise<DocumentRevision | null>;
+  setDocumentStatus(
+    id: string,
+    status: Document["status"],
+    latestError?: string | null,
+    title?: string,
+  ): Promise<void>;
+  updateRevision(
+    revisionId: string,
+    patch: {
+      parserName: string;
+      parserVersion: string;
+      chunkerName: string;
+      chunkerVersion: string;
+      normalizedStorageKey: string;
+      chunkCount: number;
+    },
+  ): Promise<void>;
+  replaceChunks(revisionId: string, chunks: StoredChunk[]): Promise<void>;
+  listChunks(
+    documentId: string,
+    q: { limit: number; cursor?: string },
+  ): Promise<{ items: StoredChunk[]; nextCursor?: string }>;
+  enqueueJob(input: { documentId: string; revisionId: string }): Promise<IngestionJob>;
+  claimJob(workerId: string, leaseMs: number): Promise<IngestionJob | null>;
+  completeJob(id: string): Promise<void>;
+  failJob(id: string, error: Error): Promise<IngestionJob>;
+  retryJob(id: string): Promise<IngestionJob>;
+  listJobs(): Promise<IngestionJob[]>;
+  getJob(id: string): Promise<IngestionJob | null>;
   softDeleteDocument(id: string): Promise<void>;
 };
 

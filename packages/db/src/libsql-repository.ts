@@ -1,16 +1,22 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
-import {
-  newId,
-  type Collection,
-  type Document,
-  type KnowledgeRepository,
-  type ListDocumentsQuery,
+import type {
+  Collection,
+  Document,
+  DocumentRevision,
+  IngestionJob,
+  KnowledgeRepository,
+  ListDocumentsQuery,
+  StoredChunk,
 } from "@mcp-knowledge/core";
+import { newId } from "@mcp-knowledge/core";
+import { createClient, type Client } from "@libsql/client";
 import { createLibsqlDb } from "./libsql.ts";
 import {
   collections,
+  documentChunks,
   documentRevisions,
   documents,
+  ingestionJobs,
 } from "./schema/libsql.ts";
 
 type Db = ReturnType<typeof createLibsqlDb>;
@@ -56,7 +62,14 @@ function toDocument(row: typeof documents.$inferSelect): Document {
 }
 
 export class LibSqlKnowledgeRepository implements KnowledgeRepository {
-  constructor(private readonly db: Db) {}
+  private readonly client: Client;
+
+  constructor(
+    private readonly db: Db,
+    url: string,
+  ) {
+    this.client = createClient({ url });
+  }
 
   async createCollection(input: {
     name: string;
@@ -227,6 +240,214 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
     return rows[0]?.storageKey ?? null;
   }
 
+  async getRevision(revisionId: string): Promise<DocumentRevision | null> {
+    const rows = await this.db
+      .select()
+      .from(documentRevisions)
+      .where(eq(documentRevisions.id, revisionId))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      documentId: row.documentId,
+      revision: row.revision,
+      storageKey: row.storageKey,
+      sha256: row.sha256,
+      sizeBytes: row.sizeBytes,
+      parserName: row.parserName,
+      parserVersion: row.parserVersion,
+      chunkerName: row.chunkerName,
+      chunkerVersion: row.chunkerVersion,
+      embeddingModel: row.embeddingModel,
+      embeddingDimensions: row.embeddingDimensions,
+      embeddingVersion: row.embeddingVersion,
+      normalizedStorageKey: row.normalizedStorageKey ?? undefined,
+      chunkCount: row.chunkCount,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async setDocumentStatus(
+    id: string,
+    status: Document["status"],
+    latestError?: string | null,
+    title?: string,
+  ): Promise<void> {
+    const now = new Date();
+    await this.db
+      .update(documents)
+      .set({
+        status,
+        updatedAt: now,
+        ...(latestError !== undefined ? { latestError } : {}),
+        ...(title !== undefined ? { title } : {}),
+      })
+      .where(eq(documents.id, id));
+  }
+
+  async updateRevision(
+    revisionId: string,
+    patch: {
+      parserName: string;
+      parserVersion: string;
+      chunkerName: string;
+      chunkerVersion: string;
+      normalizedStorageKey: string;
+      chunkCount: number;
+    },
+  ): Promise<void> {
+    await this.db
+      .update(documentRevisions)
+      .set(patch)
+      .where(eq(documentRevisions.id, revisionId));
+  }
+
+  async replaceChunks(revisionId: string, chunks: StoredChunk[]): Promise<void> {
+    await this.db.delete(documentChunks).where(eq(documentChunks.revisionId, revisionId));
+    if (chunks.length === 0) return;
+    await this.db.insert(documentChunks).values(
+      chunks.map((c) => ({
+        id: c.id,
+        collectionId: c.collectionId,
+        documentId: c.documentId,
+        revisionId: c.revisionId,
+        sequence: c.sequence,
+        content: c.content,
+        embeddingText: c.embeddingText,
+        headingPath: c.headingPath,
+        location: c.location,
+        tokenCount: c.tokenCount,
+        metadata: c.metadata,
+        contentHash: c.contentHash,
+        createdAt: c.createdAt,
+      })),
+    );
+  }
+
+  async listChunks(
+    documentId: string,
+    q: { limit: number; cursor?: string },
+  ): Promise<{ items: StoredChunk[]; nextCursor?: string }> {
+    const doc = await this.getDocument(documentId);
+    if (!doc?.currentRevisionId) return { items: [] };
+    const after = q.cursor ? Number(q.cursor) : -1;
+    const rows = await this.db
+      .select()
+      .from(documentChunks)
+      .where(
+        and(eq(documentChunks.revisionId, doc.currentRevisionId), sql`${documentChunks.sequence} > ${after}`),
+      )
+      .orderBy(documentChunks.sequence)
+      .limit(q.limit + 1);
+    const page = rows.slice(0, q.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map(toChunk),
+      nextCursor: rows.length > q.limit && last ? String(last.sequence) : undefined,
+    };
+  }
+
+  async enqueueJob(input: { documentId: string; revisionId: string }): Promise<IngestionJob> {
+    const now = new Date();
+    const row = {
+      id: newId("job"),
+      documentId: input.documentId,
+      revisionId: input.revisionId,
+      status: "queued" as const,
+      attempt: 0,
+      maxAttempts: 3,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.db.insert(ingestionJobs).values(row);
+    return toJob(row);
+  }
+
+  async claimJob(workerId: string, leaseMs: number): Promise<IngestionJob | null> {
+    const now = Date.now();
+    const leaseBefore = now - leaseMs;
+    await this.client.execute("BEGIN IMMEDIATE");
+    try {
+      const result = await this.client.execute({
+        sql: `UPDATE ingestion_jobs
+SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), attempt = attempt + 1, updated_at = ?
+WHERE id = (
+  SELECT id FROM ingestion_jobs
+  WHERE status IN ('queued', 'retrying')
+     OR (status = 'running' AND locked_at < ?)
+  ORDER BY created_at
+  LIMIT 1
+)
+AND status IN ('queued', 'retrying', 'running')
+RETURNING *`,
+        args: [workerId, now, now, now, leaseBefore],
+      });
+      await this.client.execute("COMMIT");
+      const row = result.rows[0];
+      if (!row) return null;
+      return jobFromRaw(row);
+    } catch (error) {
+      await this.client.execute("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async completeJob(id: string): Promise<void> {
+    const now = new Date();
+    await this.db
+      .update(ingestionJobs)
+      .set({ status: "completed", completedAt: now, updatedAt: now, lockedBy: null, lockedAt: null })
+      .where(eq(ingestionJobs.id, id));
+  }
+
+  async failJob(id: string, error: Error): Promise<IngestionJob> {
+    const existing = await this.getJob(id);
+    if (!existing) throw new Error("JOB_NOT_FOUND");
+    const now = new Date();
+    const message = error.message.slice(0, 2000);
+    const terminal = existing.attempt >= existing.maxAttempts;
+    await this.db
+      .update(ingestionJobs)
+      .set({
+        status: terminal ? "failed" : "retrying",
+        error: message,
+        updatedAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        completedAt: terminal ? now : null,
+      })
+      .where(eq(ingestionJobs.id, id));
+    const updated = await this.getJob(id);
+    if (!updated) throw new Error("JOB_NOT_FOUND");
+    return updated;
+  }
+
+  async retryJob(id: string): Promise<IngestionJob> {
+    const now = new Date();
+    await this.db
+      .update(ingestionJobs)
+      .set({ status: "retrying", error: null, updatedAt: now, lockedBy: null, lockedAt: null })
+      .where(eq(ingestionJobs.id, id));
+    const updated = await this.getJob(id);
+    if (!updated) throw new Error("JOB_NOT_FOUND");
+    return updated;
+  }
+
+  async listJobs(): Promise<IngestionJob[]> {
+    const rows = await this.db
+      .select()
+      .from(ingestionJobs)
+      .orderBy(desc(ingestionJobs.createdAt))
+      .limit(100);
+    return rows.map(toJob);
+  }
+
+  async getJob(id: string): Promise<IngestionJob | null> {
+    const rows = await this.db.select().from(ingestionJobs).where(eq(ingestionJobs.id, id)).limit(1);
+    return rows[0] ? toJob(rows[0]) : null;
+  }
+
   async softDeleteDocument(id: string): Promise<void> {
     const now = new Date();
     await this.db
@@ -237,5 +458,80 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
 }
 
 export function createKnowledgeRepository(url: string): KnowledgeRepository {
-  return new LibSqlKnowledgeRepository(createLibsqlDb(url));
+  return new LibSqlKnowledgeRepository(createLibsqlDb(url), url);
+}
+
+function toChunk(row: typeof documentChunks.$inferSelect): StoredChunk {
+  return {
+    id: row.id,
+    collectionId: row.collectionId ?? undefined,
+    documentId: row.documentId,
+    revisionId: row.revisionId,
+    sequence: row.sequence,
+    content: row.content,
+    embeddingText: row.embeddingText,
+    headingPath: row.headingPath ?? [],
+    location: row.location ?? undefined,
+    tokenCount: row.tokenCount,
+    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    contentHash: row.contentHash,
+    createdAt: row.createdAt,
+  };
+}
+
+function toJob(row: {
+  id: string;
+  documentId: string;
+  revisionId: string;
+  status: string;
+  attempt: number;
+  maxAttempts: number;
+  lockedBy?: string | null;
+  lockedAt?: Date | null;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  error?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): IngestionJob {
+  return {
+    id: row.id,
+    documentId: row.documentId,
+    revisionId: row.revisionId,
+    status: row.status as IngestionJob["status"],
+    attempt: row.attempt,
+    maxAttempts: row.maxAttempts,
+    lockedBy: row.lockedBy ?? undefined,
+    lockedAt: row.lockedAt ?? undefined,
+    startedAt: row.startedAt ?? undefined,
+    completedAt: row.completedAt ?? undefined,
+    error: row.error ?? undefined,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function asDate(value: unknown): Date | undefined {
+  if (value == null) return undefined;
+  if (value instanceof Date) return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? new Date(n) : undefined;
+}
+
+function jobFromRaw(row: Record<string, unknown>): IngestionJob {
+  return toJob({
+    id: String(row.id),
+    documentId: String(row.document_id),
+    revisionId: String(row.revision_id),
+    status: String(row.status),
+    attempt: Number(row.attempt),
+    maxAttempts: Number(row.max_attempts),
+    lockedBy: row.locked_by as string | null,
+    lockedAt: asDate(row.locked_at) ?? null,
+    startedAt: asDate(row.started_at) ?? null,
+    completedAt: asDate(row.completed_at) ?? null,
+    error: row.error as string | null,
+    createdAt: asDate(row.created_at) ?? new Date(),
+    updatedAt: asDate(row.updated_at) ?? new Date(),
+  });
 }
