@@ -23,4 +23,5 @@ export { ParserError } from "./errors.ts";
 export { NativeTextParser } from "./adapters/native-text.ts";
 export { AnyDocParser } from "./adapters/anydoc/adapter.ts";
 export { parseInSubprocess } from "./anydoc/subprocess-runner.ts";
+export { convertToNormalizedDocument } from "./anydoc/convert.ts";
 export { mapAnyDocError, mapToNormalizedDocument } from "./adapters/anydoc/map.ts";

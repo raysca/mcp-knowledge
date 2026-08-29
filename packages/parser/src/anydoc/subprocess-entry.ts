@@ -1,10 +1,8 @@
-import { toDocument } from "@firecrawl/anydoc";
-import { mapToNormalizedDocument } from "../adapters/anydoc/map.ts";
+import { convertToNormalizedDocument } from "./convert.ts";
 
 const bytes = await Bun.stdin.bytes();
 try {
-  const doc = await toDocument(bytes);
-  const mapped = mapToNormalizedDocument(doc as { blocks?: unknown[] });
+  const mapped = await convertToNormalizedDocument(bytes);
   process.stdout.write(JSON.stringify({ ok: true, doc: mapped }));
 } catch (err) {
   const code =

@@ -37,6 +37,27 @@ describe("chunkBlocks", () => {
     }
   });
 
+  test("splitting a large single block doesn't blow up tokenizer calls", () => {
+    // Regression: fitPrefix used to shrink one word at a time, re-tokenizing the whole
+    // remaining text each step (O(n^2) tokenizer calls). A big single-block document (an
+    // entire JSON/XML/TXT file with no paragraph breaks) could block the event loop long
+    // enough that even the ingestion timeout couldn't fire. Binary search keeps this bounded.
+    let calls = 0;
+    const counting = (text: string) => {
+      calls++;
+      return countTokens(text);
+    };
+    const big = words(20_000);
+    const chunks = chunkBlocks([{ type: "paragraph", text: big }], {
+      title: "Doc",
+      revisionHash: "abc",
+      countTokens: counting,
+    });
+    expect(chunks.length).toBeGreaterThan(1);
+    // Linear decrement would need tens of thousands of calls here; log2(20000) ~= 15 per split.
+    expect(calls).toBeLessThan(chunks.length * 50);
+  });
+
   test("ids are deterministic for the same input", () => {
     const blocks: DocumentBlock[] = [{ type: "paragraph", text: "same text" }];
     const a = chunkBlocks(blocks, { title: "Doc", revisionHash: "abc", countTokens });

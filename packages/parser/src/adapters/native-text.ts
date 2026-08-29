@@ -20,7 +20,7 @@ function parseTxt(text: string): DocumentBlock[] {
     .map((t) => ({ type: "paragraph" as const, text: t }));
 }
 
-function parseMarkdown(text: string): DocumentBlock[] {
+export function parseMarkdown(text: string): DocumentBlock[] {
   const blocks: DocumentBlock[] = [];
   for (const raw of text.split(/\n/)) {
     const line = raw.trimEnd();

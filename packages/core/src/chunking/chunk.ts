@@ -43,12 +43,28 @@ function wordsOf(text: string): string[] {
   return text.split(/\s+/).filter(Boolean);
 }
 
+// ponytail: binary search, not a linear word-by-word decrement. countTokens runs the real
+// WordPiece tokenizer, and shrinking one word at a time re-tokenizes the whole remaining text
+// on every step — O(n^2) tokenizer calls over a block's word count. A single large block (an
+// entire JSON/XML/TXT file can land in one block, up to MAX_EXTRACT_BYTES) made this run long
+// enough to block the event loop past INGESTION_TIMEOUT_MS's ability to even fire — timers
+// can't run while a synchronous loop is still executing. Binary search is O(log n) calls.
+function longestPrefixWithinBudget(words: string[], max: number, countTokens: CountTokens): number {
+  let lo = 1;
+  let hi = words.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (countTokens(words.slice(0, mid).join(" ")) <= max) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 function fitPrefix(text: string, max: number, countTokens: CountTokens): { head: string; rest: string } {
   const words = wordsOf(text);
   if (words.length === 0) return { head: "", rest: "" };
   if (countTokens(text) <= max) return { head: text, rest: "" };
-  let n = words.length;
-  while (n > 1 && countTokens(words.slice(0, n).join(" ")) > max) n--;
+  const n = longestPrefixWithinBudget(words, max, countTokens);
   return { head: words.slice(0, n).join(" "), rest: words.slice(n).join(" ") };
 }
 
@@ -80,13 +96,19 @@ function makeEmbeddingText(
 ): string {
   const section = headingPath.join(" > ");
   const prefix = `Document: ${title}\nSection: ${section}\n\n`;
-  let body = content;
-  const bodyWords = wordsOf(body);
-  while (bodyWords.length > 0 && countTokens(prefix + body) > EMBEDDING_MAX_TOKENS) {
-    bodyWords.pop();
-    body = bodyWords.join(" ");
+  const bodyWords = wordsOf(content);
+  if (bodyWords.length === 0 || countTokens(prefix + content) <= EMBEDDING_MAX_TOKENS) {
+    return prefix + content;
   }
-  return prefix + body;
+  const budget = (n: number) => countTokens(`${prefix}${bodyWords.slice(0, n).join(" ")}`);
+  let lo = 0;
+  let hi = bodyWords.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (budget(mid) <= EMBEDDING_MAX_TOKENS) lo = mid;
+    else hi = mid - 1;
+  }
+  return prefix + bodyWords.slice(0, lo).join(" ");
 }
 
 function chunkId(revisionHash: string, headingPath: string[], content: string): string {
