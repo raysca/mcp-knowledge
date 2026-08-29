@@ -1,5 +1,5 @@
 import { AppError } from "../errors.ts";
-import { assertSafeUrl, type LookupFn } from "../ssrf.ts";
+import { assertSafeUrl, createPinnedFetch, type LookupFn } from "../ssrf.ts";
 import type { DocumentService } from "./document-service.ts";
 
 export type UrlFetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -21,7 +21,11 @@ export class UrlIngestService {
       URL_FETCH_TIMEOUT_MS: number;
       URL_FETCH_MAX_REDIRECTS: number;
     },
-    private readonly deps: { fetch: UrlFetch; lookup?: LookupFn } = { fetch: globalThis.fetch },
+    // deps.fetch is a test-only override (paired with deps.lookup for a fully mocked SSRF
+    // check). In production it's left unset so each hop gets a fetch pinned to the exact
+    // addresses that hop's assertSafeUrl call validated - see createPinnedFetch for why a
+    // plain fetch() can't be trusted here.
+    private readonly deps: { fetch?: UrlFetch; lookup?: LookupFn } = {},
   ) {}
 
   async ingest(input: {
@@ -29,10 +33,11 @@ export class UrlIngestService {
     collectionId?: string;
     metadata?: Record<string, unknown>;
   }) {
-    let current = await assertSafeUrl(input.url, this.deps.lookup);
+    let { url: current, addresses } = await assertSafeUrl(input.url, this.deps.lookup);
     let res: Response | undefined;
     for (let hop = 0; hop <= this.limits.URL_FETCH_MAX_REDIRECTS; hop++) {
-      res = await this.deps.fetch(current.href, {
+      const fetchFn = this.deps.fetch ?? createPinnedFetch(addresses, this.limits.MAX_UPLOAD_BYTES);
+      res = await fetchFn(current.href, {
         method: "GET",
         redirect: "manual",
         signal: AbortSignal.timeout(this.limits.URL_FETCH_TIMEOUT_MS),
@@ -40,7 +45,7 @@ export class UrlIngestService {
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get("location");
         if (!loc) throw new AppError("DOCUMENT_FETCH_FAILED", "Redirect missing Location.", 400);
-        current = await assertSafeUrl(new URL(loc, current).href, this.deps.lookup);
+        ({ url: current, addresses } = await assertSafeUrl(new URL(loc, current).href, this.deps.lookup));
         continue;
       }
       break;
