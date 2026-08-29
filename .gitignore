@@ -1,0 +1,14 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+dist/
+apps/server/src/ui/styles.built.css
+.DS_Store
+*.log
+.cache/
+huggingface/

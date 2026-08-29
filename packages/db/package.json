@@ -1,0 +1,14 @@
+{
+  "name": "@mcp-knowledge/db",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "@mcp-knowledge/core": "workspace:*",
+    "drizzle-orm": "^0.44.7"
+  }
+}
