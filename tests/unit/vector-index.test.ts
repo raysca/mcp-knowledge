@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createClient } from "@libsql/client";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -84,5 +85,31 @@ describe("LibsqlVectorIndex", () => {
     await index.deleteRevision("rev_a");
     const after = await index.search({ vector: unit(0), limit: 8 });
     expect(after.every((h) => h.chunkId !== "chk_a")).toBe(true);
+  });
+
+  test("search actually uses the vector index, not a full table scan", async () => {
+    // Regression: the original query was `ORDER BY vector_distance_cos(...) LIMIT` directly
+    // over document_chunks - verified with EXPLAIN QUERY PLAN that this ignores
+    // document_chunks_embedding_idx entirely ("SCAN document_chunks"). libsql only consults a
+    // vector index through the vector_top_k() virtual table.
+    const client = createClient({ url });
+    const plan = await client.execute({
+      sql: `EXPLAIN QUERY PLAN SELECT c.id, vector_distance_cos(c.embedding, vector32(?)) AS dist
+        FROM vector_top_k(?, vector32(?), ?) vt
+        JOIN document_chunks c ON c.rowid = vt.id
+        JOIN documents d ON d.id = c.document_id
+        WHERE d.deleted_at IS NULL
+        ORDER BY dist ASC LIMIT ?`,
+      args: [
+        JSON.stringify(unit(0)),
+        "document_chunks_embedding_idx",
+        JSON.stringify(unit(0)),
+        20,
+        8,
+      ],
+    });
+    const details = plan.rows.map((r) => String(r.detail));
+    expect(details.some((d) => d.includes("VIRTUAL TABLE"))).toBe(true);
+    expect(details.some((d) => d.includes("SCAN document_chunks"))).toBe(false);
   });
 });

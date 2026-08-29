@@ -45,12 +45,30 @@ export class LibsqlVectorIndex implements VectorIndex {
     vector: number[];
     limit: number;
   }): Promise<VectorHit[]> {
-    const args: Array<string | number> = [vectorLiteral(input.vector)];
+    // ponytail: was `ORDER BY vector_distance_cos(...) LIMIT` over the whole table - verified
+    // with EXPLAIN QUERY PLAN that this is a full "SCAN document_chunks", ignoring the
+    // libsql_vector_idx entirely (that index is only used via the vector_top_k() virtual
+    // table). vector_top_k has no distance/filter columns of its own, so filters still apply
+    // after the ANN lookup, same as before - but now the ANN candidate pool is over-fetched
+    // when a filter is present so a narrow document/collection filter doesn't starve on a
+    // too-small top-K. A real per-filter candidate pool (spec's VECTOR_CANDIDATES) arrives
+    // with M4's hybrid retrieval; this cap is a stopgap, not the final design.
+    const hasFilter = Boolean(input.documentIds?.length || input.collectionIds?.length);
+    const k = Math.min(hasFilter ? input.limit * 20 : input.limit, 2000);
+    // Arg order must match placeholder order left-to-right: the SELECT's distance calc first,
+    // then vector_top_k's (idx, vector, k).
+    const args: Array<string | number> = [
+      vectorLiteral(input.vector),
+      "document_chunks_embedding_idx",
+      vectorLiteral(input.vector),
+      k,
+    ];
     let sql = `SELECT c.id, c.document_id, c.revision_id, c.content, c.heading_path, c.location, d.title,
       vector_distance_cos(c.embedding, vector32(?)) AS dist
-      FROM document_chunks c
+      FROM vector_top_k(?, vector32(?), ?) vt
+      JOIN document_chunks c ON c.rowid = vt.id
       JOIN documents d ON d.id = c.document_id
-      WHERE c.embedding IS NOT NULL AND d.deleted_at IS NULL`;
+      WHERE d.deleted_at IS NULL`;
     if (input.documentIds?.length) {
       sql += ` AND c.document_id IN (${placeholders(input.documentIds.length)})`;
       args.push(...input.documentIds);
