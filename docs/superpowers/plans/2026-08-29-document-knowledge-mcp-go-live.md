@@ -123,7 +123,7 @@ M0 → M1 → M2 → M3 → M4 → M5 ──┬── M6 ──┐
 
 **Produces:** Decision record in `docs/spikes/bun-native.md`: N-API vs WASM for AnyDoc; Transformers.js vs fallback for MiniLM.
 
-- [ ] **Step 1: Init Bun workspaces**
+- [x] **Step 1: Init Bun workspaces**
 
 Root `package.json` workspaces `["apps/*", "packages/*"]`. `packageManager` bun. TypeScript `strict`. `.gitignore`: `node_modules`, `data/`, `.env`, `*.db`, `dist/`.
 
@@ -131,7 +131,7 @@ Root `package.json` workspaces `["apps/*", "packages/*"]`. `packageManager` bun.
 bun init
 ```
 
-- [ ] **Step 2: AnyDoc spike**
+- [x] **Step 2: AnyDoc spike**
 
 ```ts
 import { toDocument } from "@firecrawl/anydoc";
@@ -145,7 +145,7 @@ Run: `bun scripts/spike-anydoc.ts`
 
 Expected: prints a block count. If N-API fails, retry `@firecrawl/anydoc-wasm`. Write the winner into `docs/spikes/bun-native.md`. **Do not enable `ocr: "hosted"`.** Also confirm `Bun.spawn(["bun", "run", "scripts/spike-anydoc.ts"])` from a second script can pipe the same fixture over stdin/stdout — M2 Step 2 requires this call pattern to work under Bun, not just the bare library call.
 
-- [ ] **Step 3: MiniLM spike**
+- [x] **Step 3: MiniLM spike**
 
 ```ts
 import { env, pipeline } from "@huggingface/transformers";
