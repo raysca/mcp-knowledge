@@ -90,3 +90,23 @@ export type StoredChunk = {
   contentHash: string;
   createdAt: Date;
 };
+
+export type SearchHit = {
+  chunkId: string;
+  documentId: string;
+  revisionId: string;
+  title?: string;
+  content: string;
+  headingPath: string[];
+  location?: Record<string, unknown>;
+  score: number;
+  ranking: {
+    finalRank: number;
+    vectorRank?: number;
+    lexicalRank?: number;
+    vectorScore?: number;
+    lexicalScore?: number;
+    fusionScore?: number;
+  };
+  metadata: Record<string, unknown>;
+};

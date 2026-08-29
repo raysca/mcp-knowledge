@@ -1,6 +1,13 @@
 import { AppError } from "../errors.ts";
 import { chunkBlocks, type CountTokens } from "../chunking/chunk.ts";
-import type { DocumentParser, KnowledgeRepository, BlobStore } from "../ports.ts";
+import type {
+  BlobStore,
+  DocumentParser,
+  EmbeddedChunk,
+  Embedder,
+  KnowledgeRepository,
+  VectorIndex,
+} from "../ports.ts";
 import type { IngestionJob, StoredChunk } from "../domain/types.ts";
 
 export type ParserRegistry = {
@@ -28,10 +35,13 @@ export class IngestionService {
     private readonly blobs: BlobStore,
     private readonly registry: ParserRegistry,
     private readonly countTokens: CountTokens,
+    private readonly embedder: Embedder,
+    private readonly vectors: VectorIndex,
     private readonly limits: {
       MAX_EXTRACT_BYTES: number;
       MAX_SPREADSHEET_CELLS: number;
       MAX_CHUNKS_PER_DOCUMENT: number;
+      EMBEDDING_BATCH_SIZE: number;
     },
   ) {}
 
@@ -91,11 +101,28 @@ export class IngestionService {
       createdAt: now,
     }));
     await this.repo.replaceChunks(revision.id, chunks);
+    const embedded: EmbeddedChunk[] = [];
+    const batchSize = this.limits.EMBEDDING_BATCH_SIZE;
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      const vecs = await this.embedder.embed(batch.map((c) => c.embeddingText));
+      for (let j = 0; j < batch.length; j++) {
+        const vector = vecs[j];
+        if (!vector) {
+          throw new AppError("INTERNAL_ERROR", "Embedder returned fewer vectors than texts.", 500);
+        }
+        embedded.push({ chunkId: batch[j]!.id, vector });
+      }
+    }
+    await this.vectors.insert(embedded);
     await this.repo.updateRevision(revision.id, {
       parserName: parser.name,
       parserVersion: parser.version,
       chunkerName: "structure-v1",
       chunkerVersion: "1",
+      embeddingModel: this.embedder.model,
+      embeddingDimensions: this.embedder.dimensions,
+      embeddingVersion: this.embedder.version,
       normalizedStorageKey: key,
       chunkCount: chunks.length,
     });

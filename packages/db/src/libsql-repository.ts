@@ -293,6 +293,9 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
       parserVersion: string;
       chunkerName: string;
       chunkerVersion: string;
+      embeddingModel: string;
+      embeddingDimensions: number;
+      embeddingVersion: string;
       normalizedStorageKey: string;
       chunkCount: number;
     },

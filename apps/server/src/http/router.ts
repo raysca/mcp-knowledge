@@ -1,4 +1,4 @@
-import type { CollectionService, DocumentService } from "@mcp-knowledge/core";
+import type { CollectionService, DocumentService, SearchService } from "@mcp-knowledge/core";
 import type { AppEnv } from "../config/env.ts";
 import { clampLimit, errorResponse, json, requestIdOf } from "./respond.ts";
 
@@ -6,6 +6,7 @@ export type AppServices = {
   env: AppEnv;
   documents: DocumentService;
   collections: CollectionService;
+  search: SearchService;
 };
 
 function documentJson(doc: Awaited<ReturnType<DocumentService["get"]>>) {
@@ -165,6 +166,32 @@ export async function handleRequest(req: Request, svc: AppServices): Promise<Res
       const id = decodeURIComponent(reindexMatch[1]!);
       const job = await svc.documents.reindex(id);
       return json(job, 202, requestId);
+    }
+
+    if (url.pathname === "/api/v1/search" && req.method === "POST") {
+      const body = (await req.json()) as {
+        query?: string;
+        collectionIds?: string[];
+        documentIds?: string[];
+        mode?: string;
+        limit?: number;
+      };
+      const limit = clampLimit(
+        body.limit == null ? null : String(body.limit),
+        svc.env.MAX_SEARCH_LIMIT_API,
+        svc.env.DEFAULT_SEARCH_LIMIT,
+      );
+      return json(
+        await svc.search.search({
+          query: body.query ?? "",
+          collectionIds: body.collectionIds,
+          documentIds: body.documentIds,
+          mode: body.mode,
+          limit,
+        }),
+        200,
+        requestId,
+      );
     }
 
     if (url.pathname === "/api/v1/jobs" && req.method === "GET") {

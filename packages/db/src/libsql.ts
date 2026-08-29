@@ -11,10 +11,20 @@ export async function migrateLibsql(url: string): Promise<void> {
       await mkdir(dirname(file), { recursive: true });
     }
   }
-  const sqlPath = new URL("../../../drizzle/0001_init.sql", import.meta.url);
-  const sql = await Bun.file(sqlPath).text();
   const client = createClient({ url });
-  await client.executeMultiple(sql);
+  const init = await Bun.file(new URL("../../../drizzle/0001_init.sql", import.meta.url)).text();
+  await client.executeMultiple(init);
+  const info = await client.execute("PRAGMA table_info(document_chunks)");
+  const hasEmbedding = info.rows.some((row) => {
+    const name = (row as { name?: unknown }).name ?? (row as unknown as unknown[])[1];
+    return name === "embedding";
+  });
+  if (!hasEmbedding) {
+    const alter = await Bun.file(
+      new URL("../../../drizzle/0002_embeddings.sql", import.meta.url),
+    ).text();
+    await client.executeMultiple(alter);
+  }
   client.close();
 }
 

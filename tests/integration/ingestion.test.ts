@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
 import { loadEnv } from "../../apps/server/src/config/env.ts";
 
-async function waitForStatus(base: string, id: string, want: string[], ms = 20_000) {
+async function waitForStatus(base: string, id: string, want: string[], ms = 60_000) {
   const start = Date.now();
   while (Date.now() - start < ms) {
     const res = await fetch(`${base}/api/v1/documents/${id}`);

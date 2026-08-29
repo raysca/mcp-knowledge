@@ -47,4 +47,15 @@ bun run spike:embed:worker
 
 - M2: AnyDoc in a subprocess is proven on this runtime.
 - M3: MiniLM in a Bun `Worker` is proven; do not `terminate()` that worker on each job.
-- libSQL vector KNN was **not** spiked here (plan M0 did not include it). Still required before M3 trusts `F32_BLOB` / `libsql_vector_idx`.
+
+## libSQL vector (M3, 2026-08-29)
+
+| Item | Result |
+| --- | --- |
+| Column | `F32_BLOB(4)` (same as 384) |
+| Insert | `vector32('[1,0,0,0]')` |
+| Index | `CREATE INDEX t_idx ON t (libsql_vector_idx(embedding))` — ok |
+| Search | `ORDER BY vector_distance_cos(embedding, vector32(?))` — ok |
+| Distances | identical → `0`; orthogonal → `1` |
+
+Score as `1 - distance`. `vector_top_k` was not needed: exact cosine scan with `WHERE` filters is enough for v1 local size, and joins on `rowid` while `document_chunks.id` is TEXT.

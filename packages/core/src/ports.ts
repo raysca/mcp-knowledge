@@ -59,6 +59,9 @@ export type KnowledgeRepository = {
       parserVersion: string;
       chunkerName: string;
       chunkerVersion: string;
+      embeddingModel: string;
+      embeddingDimensions: number;
+      embeddingVersion: string;
       normalizedStorageKey: string;
       chunkCount: number;
     },
@@ -83,4 +86,41 @@ export type BlobStore = {
   get(key: string): Promise<Blob>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
+};
+
+export type Embedder = {
+  name: string;
+  model: string;
+  version: string;
+  dimensions: number;
+  embed(texts: string[]): Promise<number[][]>;
+};
+
+export type EmbeddedChunk = {
+  chunkId: string;
+  vector: number[];
+};
+
+export type VectorHit = {
+  chunkId: string;
+  documentId: string;
+  revisionId: string;
+  title?: string;
+  content: string;
+  headingPath: string[];
+  location?: Record<string, unknown>;
+  score: number;
+  vectorRank: number;
+  vectorScore: number;
+};
+
+export type VectorIndex = {
+  insert(chunks: EmbeddedChunk[]): Promise<void>;
+  search(input: {
+    collectionIds?: string[];
+    documentIds?: string[];
+    vector: number[];
+    limit: number;
+  }): Promise<VectorHit[]>;
+  deleteRevision(revisionId: string): Promise<void>;
 };

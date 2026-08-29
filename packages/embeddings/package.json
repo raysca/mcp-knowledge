@@ -2,5 +2,12 @@
   "name": "@mcp-knowledge/embeddings",
   "private": true,
   "type": "module",
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@mcp-knowledge/core": "workspace:*"
+  }
 }
