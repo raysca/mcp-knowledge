@@ -311,19 +311,25 @@ try {
 // packages/parser/src/anydoc/subprocess-runner.ts — called from the worker, not from any HTTP handler.
 export async function parseInSubprocess(bytes: Uint8Array, timeoutMs: number): Promise<NormalizedDocument> {
   const proc = Bun.spawn(["bun", "run", subprocessEntryPath], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  proc.stdin.write(bytes);
-  proc.stdin.end();
+  // Start draining stdout/stderr BEFORE (not after) writing stdin. A large document's normalized-JSON
+  // reply can exceed the OS pipe buffer; writing all of stdin first, then reading stdout, deadlocks —
+  // child blocks writing its reply while parent is still blocked writing input. Same risk on stderr if
+  // the native addon logs anything and nobody drains it. All three must run concurrently.
+  const stdoutPromise = new Response(proc.stdout).text();
+  const stderrPromise = new Response(proc.stderr).text(); // drained, not surfaced unless exitCode !== 0
   const timeout = setTimeout(() => proc.kill(), timeoutMs); // enforces PARSER_TIMEOUT_MS
-  const [out, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  await proc.stdin.write(bytes);
+  await proc.stdin.end();
+  const [out, stderrText, exitCode] = await Promise.all([stdoutPromise, stderrPromise, proc.exited]);
   clearTimeout(timeout);
-  if (exitCode !== 0) throw new ParserError("DOCUMENT_MALFORMED", `anydoc subprocess exit ${exitCode}`); // covers segfault/OOM-kill
+  if (exitCode !== 0) throw new ParserError("DOCUMENT_MALFORMED", `anydoc subprocess exit ${exitCode}: ${stderrText.slice(0, 500)}`); // covers segfault/OOM-kill
   const result = JSON.parse(out);
   if (!result.ok) throw mapAnyDocError(result.code, result.message);
   return mapToNormalizedDocument(result.doc);
 }
 ```
 
-A segfault or OOM-kill in the child surfaces as a normal `DOCUMENT_MALFORMED` job failure — the API/MCP/UI in the parent process are unaffected and every other in-flight request keeps serving. Spawn-per-parse is the lazy version; add a warm subprocess pool only if spawn overhead shows up in ingestion-throughput numbers, not before.
+A segfault or OOM-kill in the child surfaces as a normal `DOCUMENT_MALFORMED` job failure — the API/MCP/UI in the parent process are unaffected and every other in-flight request keeps serving. Spawn-per-parse is the lazy version; add a warm subprocess pool only if spawn overhead shows up in ingestion-throughput numbers, not before. `tests/integration/parser-crash.test.ts` also needs a large-fixture case (near `MAX_DOCUMENT_PAGES`) asserting it completes well under `PARSER_TIMEOUT_MS`, not just the small-fixture crash case — that's the only way the deadlock above would show up in CI.
 
 - [ ] **Step 3: Chunker**
 
@@ -406,15 +412,32 @@ self.onmessage = async (e: MessageEvent<{ id: string; texts: string[] }>) => {
 ```ts
 // packages/embeddings/src/local-transformers.ts — implements Embedder, called from the ingestion worker loop.
 export class LocalTransformersEmbedder implements Embedder {
-  private worker = new Worker(new URL("./worker-thread.ts", import.meta.url));
-  private pending = new Map<string, (vectors: number[][]) => void>();
-  constructor() {
-    this.worker.onmessage = (e) => this.pending.get(e.data.id)?.(e.data.vectors);
+  private worker!: Worker;
+  private pending = new Map<string, { resolve: (v: number[][]) => void; reject: (e: Error) => void }>();
+
+  constructor() { this.spawn(); }
+
+  private spawn() {
+    this.worker = new Worker(new URL("./worker-thread.ts", import.meta.url));
+    this.worker.onmessage = (e) => this.pending.get(e.data.id)?.resolve(e.data.vectors);
+    // A crashed/unloadable pipeline must not silently hang every pending and future embed() call —
+    // that's the same failure class as an unguarded AnyDoc crash, just on the embedding side. Fail
+    // every in-flight request loudly and respawn so the NEXT call gets a fresh worker instead of
+    // posting into a dead one forever.
+    const onFatal = (err: Error) => {
+      for (const { reject } of this.pending.values()) reject(err);
+      this.pending.clear();
+      this.worker.terminate();
+      this.spawn();
+    };
+    this.worker.onerror = (e) => onFatal(new Error(`embedding worker crashed: ${e.message}`));
+    this.worker.onmessageerror = () => onFatal(new Error("embedding worker sent an unparseable message"));
   }
+
   embed(texts: string[]): Promise<number[][]> {
     const id = crypto.randomUUID();
-    return new Promise((resolve) => {
-      this.pending.set(id, (v) => { this.pending.delete(id); resolve(v); });
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
       this.worker.postMessage({ id, texts });
     });
   }
@@ -423,7 +446,7 @@ export class LocalTransformersEmbedder implements Embedder {
 }
 ```
 
-`dimensions !== 384` throws in the worker before it ever replies. Persist `embedding_model`, `embedding_dimensions`, `embedding_version` on the revision. `tests/integration/embed-does-not-block-http.test.ts`: fire a large embed batch and a concurrent `GET /health`; assert the health check's latency doesn't spike with batch size.
+`dimensions !== 384` throws in the worker before it ever replies. Persist `embedding_model`, `embedding_dimensions`, `embedding_version` on the revision. A rejected `embed()` fails that one ingestion job normally (retried like any other job failure) instead of hanging it for the full `INGESTION_TIMEOUT_MS`. `tests/integration/embed-does-not-block-http.test.ts`: fire a large embed batch and a concurrent `GET /health`; assert the health check's latency doesn't spike with batch size. Add `tests/unit/embedder-crash-recovery.test.ts`: force the worker to throw (bad model path fixture), assert the pending `embed()` call rejects promptly and the *next* `embed()` call on the same `Embedder` instance still succeeds.
 
 - [ ] **Step 2: Insert + search**
 
@@ -706,7 +729,9 @@ Do not land a milestone if its **Exit** box is unchecked.
 | AnyDoc N-API broken on Bun | M0 | WASM adapter; freeze winner in spike note |
 | Transformers.js broken on Bun | M0 / M3 | `onnxruntime-node` + same ONNX; keep `Embedder` interface |
 | AnyDoc crash takes down the API | M2 | Parse always runs in a spawned subprocess (Step 2); crash → `DOCUMENT_MALFORMED` job failure, server unaffected |
+| Subprocess stdin/stdout/stderr pipe deadlock on large documents | M2 | Drain stdout/stderr concurrently with writing stdin (Step 2); test a near-`MAX_DOCUMENT_PAGES` fixture, not just a small one |
 | Embedding batch stalls the event loop | M3 | Inference always runs in a `Worker` thread (Step 1); HTTP/MCP never call the pipeline directly |
+| Embedding worker crash hangs all future ingestion silently | M3 | `onerror`/`onmessageerror` reject in-flight calls and respawn the worker (Step 1); crash-recovery test required |
 | `Bun.spawn`/`Worker` behave differently than Node's under load | M0 / M2 / M3 | Spike both patterns (not just the bare library calls) before M2/M3 depend on them |
 | libSQL vector quality vs pgvector | M7 | Recall tests on both; do not fake identical scores |
 | FTS5 vs `tsvector` ranking drift | M4 / M7 | RRF on ranks, not raw scores |
