@@ -126,9 +126,15 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     URL_FETCH_TIMEOUT_MS: int(source.URL_FETCH_TIMEOUT_MS, 30_000),
     URL_FETCH_MAX_REDIRECTS: int(source.URL_FETCH_MAX_REDIRECTS, 3),
     WEBHOOK_TIMEOUT_MS: int(source.WEBHOOK_TIMEOUT_MS, 10_000),
-    // Local defaults on so `bun dev` works without a key. Skip still requires a loopback
-    // remote (see shouldSkipAuth) — bind host 0.0.0.0 does not open the API to the LAN.
-    AUTH_DISABLED: bool(source.AUTH_DISABLED, profile === "local"),
+    // Must stay an explicit opt-in, never a profile default. shouldSkipAuth checks the real
+    // per-request remote address (Bun's server.requestIP), not the bind host, which correctly
+    // closes the Docker `-p`-requires-0.0.0.0 gap this comment used to only worry about. But
+    // it can't see through a reverse proxy: anyone who fronts the local profile with
+    // nginx/Caddy/Cloudflare Tunnel on the same box (a common way to reach a self-hosted tool
+    // remotely) has every real request arrive from the proxy's own loopback address - defaulting
+    // this true would silently grant every proxied caller a free pass, not just this machine's
+    // user. The one env var `bun dev` needs is a smaller cost than that failure mode.
+    AUTH_DISABLED: bool(source.AUTH_DISABLED, false),
     MAX_MCP_DOCUMENT_CHARS: int(source.MAX_MCP_DOCUMENT_CHARS, 32_000),
   };
 }

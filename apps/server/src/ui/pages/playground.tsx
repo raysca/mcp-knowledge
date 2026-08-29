@@ -323,8 +323,11 @@ export function PlaygroundPage() {
             >
               Next
             </Button>
+            {/* ponytail: labeled "neighbors" not "section" - GET /api/v1/chunks/:id only
+                supports a before/after neighbor window (spec §60), it has no section mode.
+                True section expansion means re-running search with expand:{type:"section"}. */}
             <Button variant="outline" size="sm" onClick={() => void expandHit(hit.chunkId)}>
-              Expand section
+              Expand neighbors
             </Button>
             <a className="inline-flex h-8 items-center px-2 text-sm text-navy underline" href={`/api/v1/documents/${hit.documentId}/file`}>
               Open document

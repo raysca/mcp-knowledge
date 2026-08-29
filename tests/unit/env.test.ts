@@ -10,15 +10,18 @@ describe("loadEnv", () => {
     expect(env.ROLE).toBe("all");
     expect(env.MAX_UPLOAD_BYTES).toBe(67_108_864);
     expect(env.MAX_LIST_LIMIT).toBe(100);
-    expect(env.AUTH_DISABLED).toBe(true);
+    expect(env.AUTH_DISABLED).toBe(false);
   });
 
-  test("server profile requires auth by default", () => {
+  test("AUTH_DISABLED is opt-in on both profiles, never a default", () => {
+    // Regression: briefly defaulted true on the local profile (reasoning: shouldSkipAuth
+    // checks the real remote address, so Docker's 0.0.0.0 bind can't be tricked). True, but
+    // it misses a reverse proxy on the same box (nginx/Caddy/Cloudflare Tunnel) - every
+    // request then arrives from the proxy's own loopback address, silently granting every
+    // proxied caller a free pass. Must stay opt-in on both profiles.
+    expect(loadEnv({ APP_PROFILE: "local" }).AUTH_DISABLED).toBe(false);
     expect(loadEnv({ APP_PROFILE: "server" }).AUTH_DISABLED).toBe(false);
-  });
-
-  test("AUTH_DISABLED=false stays off on the local profile", () => {
-    expect(loadEnv({ AUTH_DISABLED: "false" }).AUTH_DISABLED).toBe(false);
+    expect(loadEnv({ APP_PROFILE: "local", AUTH_DISABLED: "true" }).AUTH_DISABLED).toBe(true);
   });
 
   test("rejects unknown APP_PROFILE", () => {
