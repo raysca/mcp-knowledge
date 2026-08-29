@@ -2,5 +2,11 @@
   "name": "@mcp-knowledge/storage",
   "private": true,
   "type": "module",
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mcp-knowledge/core": "workspace:*"
+  }
 }

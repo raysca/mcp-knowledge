@@ -6,11 +6,11 @@ Self-hostable document knowledge service. Ingest files, index them locally, retr
 
 ```bash
 bun install
-bun db:migrate   # from M1
-bun dev          # from M1
+bun db:migrate
+bun dev
 ```
 
-Until M1 lands, only the M0 spikes exist:
+Dashboard and API share one `Bun.serve()` process on port 3000. Uploaded files stay `pending` until M2 parsing.
 
 ```bash
 bun run spike:anydoc

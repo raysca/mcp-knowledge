@@ -7,6 +7,7 @@ data/
 *.db-wal
 *.db-shm
 dist/
+apps/server/src/ui/styles.built.css
 .DS_Store
 *.log
 .cache/

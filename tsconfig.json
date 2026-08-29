@@ -9,5 +9,5 @@
     "types": ["bun-types"],
     "jsx": "react-jsx"
   },
-  "include": ["apps", "packages", "scripts"]
+  "include": ["apps", "packages", "scripts", "tests"]
 }
