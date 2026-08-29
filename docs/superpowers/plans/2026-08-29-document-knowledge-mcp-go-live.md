@@ -494,7 +494,7 @@ Index `content` + joined `heading_path`. Tokenizer `unicode61`. Query `MATCH` + 
 
 - [ ] **Step 2: Filters**
 
-Compile `eq | neq | in | exists | gte | lte` to `json_extract` on chunk/document metadata.
+Compile `eq | neq | in | exists | gte | lte` to `json_extract` on chunk/document metadata. **Filters go inside the vector and lexical candidate queries (the `WHERE` clause each side runs before its own 50-candidate cutoff), never applied to the fused/top-K result afterward.** Filtering post-fusion can silently return zero or too-few results under any filter even when the corpus has plenty of matches — the 50-candidate pool fetched *without* the filter may not contain them at all. `tests/unit/filters.test.ts` must include a case with > 50 matching-content chunks where only a filtered subset qualifies, asserting the filtered result set isn't limited by the unfiltered candidate pool size.
 
 - [ ] **Step 3: Hybrid + explain**
 
@@ -539,6 +539,8 @@ No `explain_search` MCP tool (ponytail review 2026-08-29): it would duplicate `P
 Resources: `document://{documentId}` and `/chunks/{chunkId}` / `/normalized`.
 
 Auth: same Bearer API keys as REST. Localhost bind may skip auth when `APP_PROFILE=local` and host is loopback **and** `AUTH_DISABLED=true` (explicit). Remote bind never skips auth.
+
+**"Host is loopback" means the incoming request's remote socket address (`127.0.0.1`/`::1`), checked per-request — never the server's configured bind host.** This matters because M11's own local deploy example is `docker run -p 3000:3000`, which requires the process to bind `0.0.0.0` *inside* the container for Docker's port publishing to work at all. If the check reads the bind address instead of each request's actual remote address, every Docker deployment looks like "loopback" to the check, and `AUTH_DISABLED=true` (which local-mode defaults likely set) silently exposes the API to anyone who can reach the host's network interfaces — not just true localhost callers. `tests/unit/ssrf.test.ts` (or a new `tests/unit/loopback-auth.test.ts`) must assert a request arriving with a non-loopback remote address is rejected without a key even when the server is bound to `0.0.0.0`.
 
 - [ ] **Step 1: API keys**
 
@@ -631,7 +633,7 @@ git commit -m "feat: MCP search tools and SSRF-safe URL ingest"
 - Modify: UI System + Jobs pages
 - Test: `tests/integration/health.test.ts`
 
-- [ ] `GET /health` liveness. `GET /ready` checks DB, storage, embedding file present, migrations, worker loop alive.
+- [ ] `GET /health` liveness. `GET /ready` checks DB, storage, embedding file present, migrations, worker loop alive, **the embedding `Worker` thread responds to a no-op ping within a short timeout (catches a crashed-and-mid-respawn worker that M3's recovery didn't finish), and a subprocess can actually be spawned (catches a `PATH`/permissions problem in a locked-down container that would otherwise fail every ingestion job while `/ready` reports green)**.
 - [ ] `GET /api/v1/system/status` per spec §81.
 - [ ] `GET /metrics`: `documents_total`, `documents_failed_total`, `job_queue_depth`, `search_duration_seconds`. Ponytail review 2026-08-29: ship these four, not all ~20 names in spec §82 — add a series when an operator asks a question it would answer, not before.
 - [ ] JSON logs with `requestId`, `documentId`, `jobId`, `operation`, `durationMs`. Never log content, embeddings, secrets, or `Authorization`.
@@ -665,7 +667,7 @@ CRUD + `GET /deliveries` + `POST /test`. Timeout 10 s. Retry 1m / 5m / 30m / 2h 
 - Create: CI workflow: `bun test`, retrieval recall, docker build
 - Test: compose smoke script
 
-- [ ] **Image** contains Bun app, UI bundle, migrations, `models/default`, AnyDoc native (or WASM) for `linux/amd64` (and arm64 if you claim it).
+- [ ] **Image** contains Bun app, UI bundle, migrations, `models/default`, AnyDoc native (or WASM) for `linux/amd64` (and arm64 if you claim it). **Verify the M2 subprocess-entry script and M3 worker-thread script exist as independently invocable files in the built image, not just in dev.** M0–M3 run straight off source files on disk (`Bun.spawn(["bun", "run", subprocessEntryPath])`, `new Worker(new URL("./worker-thread.ts", import.meta.url))`) where this "just works"; if the build step bundles the server into one artifact (which the spec favors), these two entry points can get inlined away and every parse/embed fails only in the container, never locally. Add to the compose smoke script: upload a real document through the running image and confirm it reaches `ready`, not just that the container boots.
 - [ ] **Local:** `docker run -p 3000:3000 -v knowledge:/app/data`.
 - [ ] **Server compose:** API+workers, Postgres+pgvector, MinIO, `APP_PROFILE=server`. Two API replicas, one worker replica — ingest still works (proves S3+SKIP LOCKED).
 - [ ] **Backups:** document “copy `data/` + sqlite” (local) and “Postgres dump + S3 versioning” (server). Indexes reconstructable from originals.
@@ -737,6 +739,9 @@ Do not land a milestone if its **Exit** box is unchecked.
 | FTS5 vs `tsvector` ranking drift | M4 / M7 | RRF on ranks, not raw scores |
 | MiniLM English-only | product | Document in README; do not silently add a second model in v1 |
 | Native AnyDoc in Docker | M11 | Multi-arch binaries or WASM in the image |
+| Metadata filters silently drop matches | M4 | Filters run inside vector/lexical candidate queries, before the 50-cutoff, not after fusion |
+| "Loopback" auth-skip misfires under Docker's required `0.0.0.0` bind | M5 | Check the per-request remote socket address, never the configured bind host |
+| Bundled build inlines away the subprocess/worker entry files | M11 | Confirm both exist as invocable paths in the built image; smoke-test an actual upload against the container |
 
 ---
 
