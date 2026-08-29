@@ -10,6 +10,15 @@ describe("loadEnv", () => {
     expect(env.ROLE).toBe("all");
     expect(env.MAX_UPLOAD_BYTES).toBe(67_108_864);
     expect(env.MAX_LIST_LIMIT).toBe(100);
+    expect(env.AUTH_DISABLED).toBe(true);
+  });
+
+  test("server profile requires auth by default", () => {
+    expect(loadEnv({ APP_PROFILE: "server" }).AUTH_DISABLED).toBe(false);
+  });
+
+  test("AUTH_DISABLED=false stays off on the local profile", () => {
+    expect(loadEnv({ AUTH_DISABLED: "false" }).AUTH_DISABLED).toBe(false);
   });
 
   test("rejects unknown APP_PROFILE", () => {

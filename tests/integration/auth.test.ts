@@ -55,6 +55,7 @@ describe("auth required", () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-auth2-"));
     const app = await createApp(
       loadEnv({
+        AUTH_DISABLED: "false",
         DATABASE_URL: `file:${join(dir, "app.db")}`,
         STORAGE_PATH: join(dir, "blobs"),
       }),
