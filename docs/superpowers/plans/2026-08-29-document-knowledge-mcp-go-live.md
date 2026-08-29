@@ -20,6 +20,7 @@
 - Parser: `@firecrawl/anydoc` via `toDocument()` mapped to `NormalizedDocument`. Hosted OCR off. `needsOcr` → `DOCUMENT_NEEDS_OCR`. AnyDoc types stay inside `packages/parser/adapters/anydoc`.
 - Retrieval: hybrid = 50 vector + 50 lexical, RRF `k=60`, then cut to `limit` (default 8). Lexical: FTS5 `unicode61` / Postgres `simple` — no stemming.
 - Jobs: database queue. Postgres `FOR UPDATE SKIP LOCKED`; libSQL `BEGIN IMMEDIATE`. Lease 5 minutes (`JOB_LEASE_MS=300000`).
+- Process isolation (ponytail review 2026-08-29, not optional): AnyDoc `parse()` always runs in a spawned subprocess (M2 Step 2), never inline in the server process — a native-addon crash on a hostile file must not take down the HTTP/MCP server. MiniLM inference always runs in a `Worker` thread (M3 Step 1), never on the main loop — it must not stall in-flight requests.
 - Limits: `MAX_UPLOAD_BYTES=67108864`, `MAX_EXTRACT_BYTES=8388608`, `MAX_DOCUMENT_PAGES=500`, `MAX_SPREADSHEET_CELLS=200000`, `PARSER_TIMEOUT_MS=30000`, `INGESTION_TIMEOUT_MS=600000`. Upload 413 on oversize.
 - Duplicate SHA-256 of a live document: return existing with `duplicate: true`.
 - Zero required external AI. No chat UI, agents, SSO, or rerankers (spec §127).
@@ -142,7 +143,7 @@ console.log("anydoc ok", doc.blocks.length);
 
 Run: `bun scripts/spike-anydoc.ts`
 
-Expected: prints a block count. If N-API fails, retry `@firecrawl/anydoc-wasm`. Write the winner into `docs/spikes/bun-native.md`. **Do not enable `ocr: "hosted"`.**
+Expected: prints a block count. If N-API fails, retry `@firecrawl/anydoc-wasm`. Write the winner into `docs/spikes/bun-native.md`. **Do not enable `ocr: "hosted"`.** Also confirm `Bun.spawn(["bun", "run", "scripts/spike-anydoc.ts"])` from a second script can pipe the same fixture over stdin/stdout — M2 Step 2 requires this call pattern to work under Bun, not just the bare library call.
 
 - [ ] **Step 3: MiniLM spike**
 
@@ -159,7 +160,7 @@ if (vec.length !== 384) throw new Error(`dims ${vec.length}`);
 console.log("embed ok", vec.length);
 ```
 
-Vendor the uint8 ONNX snapshot into `models/default/` **before** this run (no network). If Transformers.js fails on Bun, document the fallback (`onnxruntime-node` + same ONNX file) in the spike note. Gate M3 on this result.
+Vendor the uint8 ONNX snapshot into `models/default/` **before** this run (no network). If Transformers.js fails on Bun, document the fallback (`onnxruntime-node` + same ONNX file) in the spike note. Also confirm the same `pipeline()` call works when loaded inside `new Worker(...)` and reachable via `postMessage` — M3 Step 1 requires this, not just the bare main-thread call. Gate M3 on this result.
 
 - [ ] **Step 4: Commit**
 
@@ -257,10 +258,11 @@ git commit -m "feat: upload, list, and delete documents on Bun.serve"
 
 **Files:**
 - Create: `packages/parser/src/types.ts`, `registry.ts`, `adapters/anydoc/*.ts`, `adapters/native-text/*.ts`
+- Create: `packages/parser/src/anydoc/subprocess-runner.ts`, `packages/parser/src/anydoc/subprocess-entry.ts` (see Step 2 — parse isolation)
 - Create: `packages/core/src/chunking/*.ts`, `packages/core/src/services/ingestion-service.ts`, `job-service.ts`
 - Create: `apps/server/src/workers/loop.ts`
 - Modify: `packages/db` job claim SQL (libSQL `BEGIN IMMEDIATE` from spec §19)
-- Test: `tests/unit/chunking.test.ts`, `tests/unit/parser-map.test.ts`, `tests/integration/ingestion.test.ts`
+- Test: `tests/unit/chunking.test.ts`, `tests/unit/parser-map.test.ts`, `tests/integration/ingestion.test.ts`, `tests/integration/parser-crash.test.ts`
 
 **Interfaces:**
 
@@ -284,9 +286,44 @@ interface JobRepository {
 
 TXT / Markdown / HTML / JSON / XML → `NormalizedDocument` blocks. Unit tests with fixtures. HTML can be a heading+paragraph walk; JSON/XML as a single `CodeBlock` if structure is opaque.
 
-- [ ] **Step 2: AnyDoc adapter**
+- [ ] **Step 2: AnyDoc adapter — parse in a subprocess, not the server process**
 
-`toDocument` → map blocks (heading, paragraph, table **as TableBlock**, list, code, quote, image alt). Map errors: `unsupported` → `DOCUMENT_UNSUPPORTED_FORMAT`, `needsOcr` → `DOCUMENT_NEEDS_OCR`, `encrypted` → `DOCUMENT_ENCRYPTED`, `resourceLimit` → `DOCUMENT_RESOURCE_LIMIT`, `malformed`/`missingPart` → `DOCUMENT_MALFORMED`. Wrap parse in `PARSER_TIMEOUT_MS`. `parserName: "anydoc"`, `parserVersion` from package.
+`toDocument` → map blocks (heading, paragraph, table **as TableBlock**, list, code, quote, image alt). Map errors: `unsupported` → `DOCUMENT_UNSUPPORTED_FORMAT`, `needsOcr` → `DOCUMENT_NEEDS_OCR`, `encrypted` → `DOCUMENT_ENCRYPTED`, `resourceLimit` → `DOCUMENT_RESOURCE_LIMIT`, `malformed`/`missingPart` → `DOCUMENT_MALFORMED`. `parserName: "anydoc"`, `parserVersion` from package.
+
+**Architecture fix (was: spec §99 deferred process isolation to "later"; not deferrable — `@firecrawl/anydoc` is a native N-API addon parsing attacker-controlled bytes, and it was going to run inline in the same `Bun.serve()` process that answers HTTP/MCP. A crafted file that segfaults the addon takes down the whole server, not just one job.)**
+
+Run every AnyDoc `parse()` call in a child process via `Bun.spawn`, never inline in the worker loop:
+
+```ts
+// packages/parser/src/anydoc/subprocess-entry.ts — the whole child process.
+// Reads bytes from stdin, calls toDocument, writes NormalizedDocument JSON (or {error}) to stdout, exits.
+import { toDocument } from "@firecrawl/anydoc";
+const bytes = await Bun.stdin.bytes();
+try {
+  const doc = await toDocument(bytes);
+  process.stdout.write(JSON.stringify({ ok: true, doc }));
+} catch (err) {
+  process.stdout.write(JSON.stringify({ ok: false, code: (err as any).code, message: String(err) }));
+}
+```
+
+```ts
+// packages/parser/src/anydoc/subprocess-runner.ts — called from the worker, not from any HTTP handler.
+export async function parseInSubprocess(bytes: Uint8Array, timeoutMs: number): Promise<NormalizedDocument> {
+  const proc = Bun.spawn(["bun", "run", subprocessEntryPath], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  proc.stdin.write(bytes);
+  proc.stdin.end();
+  const timeout = setTimeout(() => proc.kill(), timeoutMs); // enforces PARSER_TIMEOUT_MS
+  const [out, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  clearTimeout(timeout);
+  if (exitCode !== 0) throw new ParserError("DOCUMENT_MALFORMED", `anydoc subprocess exit ${exitCode}`); // covers segfault/OOM-kill
+  const result = JSON.parse(out);
+  if (!result.ok) throw mapAnyDocError(result.code, result.message);
+  return mapToNormalizedDocument(result.doc);
+}
+```
+
+A segfault or OOM-kill in the child surfaces as a normal `DOCUMENT_MALFORMED` job failure — the API/MCP/UI in the parent process are unaffected and every other in-flight request keeps serving. Spawn-per-parse is the lazy version; add a warm subprocess pool only if spawn overhead shows up in ingestion-throughput numbers, not before.
 
 - [ ] **Step 3: Chunker**
 
@@ -302,7 +339,7 @@ On upload, `enqueue` job `queued`, document `processing`. Embedded worker in the
 
 - [ ] **Step 6: Tests**
 
-Fixture PDF/DOCX/MD. Assert chunk rows, `ready`. Encrypted or scanned PDF fixture → `DOCUMENT_NEEDS_OCR` or `DOCUMENT_ENCRYPTED` on the document. Retry endpoint re-enqueues.
+Fixture PDF/DOCX/MD. Assert chunk rows, `ready`. Encrypted or scanned PDF fixture → `DOCUMENT_NEEDS_OCR` or `DOCUMENT_ENCRYPTED` on the document. Retry endpoint re-enqueues. `tests/integration/parser-crash.test.ts`: a fixture that kills the subprocess (`process.exit(1)` stand-in, or an actual crafted crasher if AnyDoc has one) fails that job as `DOCUMENT_MALFORMED` while a concurrent `GET /health` and `GET /api/v1/documents` against the same running server both still return 200.
 
 - [ ] **Step 7: Commit**
 
@@ -320,10 +357,11 @@ git commit -m "feat: parse, chunk, and retry ingestion jobs"
 
 **Files:**
 - Create: `packages/embeddings/src/embedder.ts`, `local-transformers.ts`
+- Create: `packages/embeddings/src/worker-thread.ts` (see Step 1 — off-main-thread inference)
 - Modify: `packages/db` add `embedding F32_BLOB(384)` + libSQL vector index (spec §122.3)
 - Modify: worker to `embed(texts[])` in batches of `EMBEDDING_BATCH_SIZE=32`
 - Create: `packages/retrieval/src/vector/libsql.ts`
-- Test: `tests/unit/embedder.test.ts`, `tests/integration/vector-search.test.ts`
+- Test: `tests/unit/embedder.test.ts`, `tests/integration/vector-search.test.ts`, `tests/integration/embed-does-not-block-http.test.ts`
 
 **Interfaces:**
 
@@ -348,9 +386,44 @@ interface VectorIndex {
 }
 ```
 
-- [ ] **Step 1: Load once per worker**
+- [ ] **Step 1: Load once per worker — off the main thread**
 
-Pipeline created at worker start, reused. `dimensions !== 384` throws. Persist `embedding_model`, `embedding_dimensions`, `embedding_version` on the revision.
+**Architecture fix (was: `@huggingface/transformers` inference is synchronous CPU-bound JS/WASM math; Bun is single-threaded per isolate; the embedded worker loop shares the process with the HTTP server (spec §20). A batch of 32 chunks embedding mid-ingest would stall every in-flight search/API request on the same process — the spec's `search < 250ms` target (§119) is meaningless if a concurrent embed call is blocking the loop.)**
+
+The `Embedder` pipeline runs inside a Bun `Worker` thread, not on the loop that serves HTTP. The worker (job-queue) process sends `embed(texts[])` requests to the thread over `postMessage` and awaits the reply; the HTTP server never touches the pipeline directly.
+
+```ts
+// packages/embeddings/src/worker-thread.ts — runs inside `new Worker(...)`, loaded once, pipeline reused.
+import { env, pipeline } from "@huggingface/transformers";
+env.allowRemoteModels = false;
+const extractor = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", { local_files_only: true });
+self.onmessage = async (e: MessageEvent<{ id: string; texts: string[] }>) => {
+  const out = await extractor(e.data.texts, { pooling: "mean", normalize: true });
+  postMessage({ id: e.data.id, vectors: out.tolist() });
+};
+```
+
+```ts
+// packages/embeddings/src/local-transformers.ts — implements Embedder, called from the ingestion worker loop.
+export class LocalTransformersEmbedder implements Embedder {
+  private worker = new Worker(new URL("./worker-thread.ts", import.meta.url));
+  private pending = new Map<string, (vectors: number[][]) => void>();
+  constructor() {
+    this.worker.onmessage = (e) => this.pending.get(e.data.id)?.(e.data.vectors);
+  }
+  embed(texts: string[]): Promise<number[][]> {
+    const id = crypto.randomUUID();
+    return new Promise((resolve) => {
+      this.pending.set(id, (v) => { this.pending.delete(id); resolve(v); });
+      this.worker.postMessage({ id, texts });
+    });
+  }
+  readonly name = "local-transformers"; readonly model = "Xenova/all-MiniLM-L6-v2";
+  readonly version = "1"; readonly dimensions = 384;
+}
+```
+
+`dimensions !== 384` throws in the worker before it ever replies. Persist `embedding_model`, `embedding_dimensions`, `embedding_version` on the revision. `tests/integration/embed-does-not-block-http.test.ts`: fire a large embed batch and a concurrent `GET /health`; assert the health check's latency doesn't spike with batch size.
 
 - [ ] **Step 2: Insert + search**
 
@@ -632,6 +705,9 @@ Do not land a milestone if its **Exit** box is unchecked.
 | --- | --- | --- |
 | AnyDoc N-API broken on Bun | M0 | WASM adapter; freeze winner in spike note |
 | Transformers.js broken on Bun | M0 / M3 | `onnxruntime-node` + same ONNX; keep `Embedder` interface |
+| AnyDoc crash takes down the API | M2 | Parse always runs in a spawned subprocess (Step 2); crash → `DOCUMENT_MALFORMED` job failure, server unaffected |
+| Embedding batch stalls the event loop | M3 | Inference always runs in a `Worker` thread (Step 1); HTTP/MCP never call the pipeline directly |
+| `Bun.spawn`/`Worker` behave differently than Node's under load | M0 / M2 / M3 | Spike both patterns (not just the bare library calls) before M2/M3 depend on them |
 | libSQL vector quality vs pgvector | M7 | Recall tests on both; do not fake identical scores |
 | FTS5 vs `tsvector` ranking drift | M4 / M7 | RRF on ranks, not raw scores |
 | MiniLM English-only | product | Document in README; do not silently add a second model in v1 |

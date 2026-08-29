@@ -28,6 +28,7 @@ These are the constraints most likely to be violated by a generic implementation
 6. **Single-tenant in v1.** No `workspaceId` column, no workspace path/header, no dummy "default" workspace row (§8).
 7. **Retrieval must stay explainable**, never a black box — every hit should be traceable to vector rank, lexical rank, fusion score, and source location (§4.5, §38–39, §75–76).
 8. **Dependency direction**: HTTP/MCP/UI → application services → domain → interfaces → adapters. Never import an adapter from application code the other way (§124).
+9. **Parsing and embedding never run inline on the process that serves HTTP/MCP.** Added by ponytail review 2026-08-29 — not in the spec text, but required by the go-live plan (M2 Step 2, M3 Step 1): `AnyDoc.parse()` runs in a spawned `Bun.spawn` subprocess (a native-addon crash on a hostile upload must not take the server down with it), and MiniLM inference runs in a `Worker` thread (a batch embed must not stall in-flight search/API requests on Bun's single-threaded event loop). Rule 5's "one process" is about not standing up a second HTTP server — it does not mean parse/embed work belongs on that process's main thread.
 
 ## Key fixed values (don't invent alternatives)
 
