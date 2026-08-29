@@ -12,7 +12,7 @@ bun dev
 
 The local profile skips auth for loopback remotes (`127.0.0.1` / `::1`) so the dashboard and MCP can call `/api/v1` without a key. Binding `0.0.0.0` does not disable auth for non-local clients. Set `AUTH_DISABLED=false` to require a key even on localhost. `APP_PROFILE=server` always requires a key unless you explicitly set `AUTH_DISABLED=true`.
 
-Dashboard, REST, and MCP share one `Bun.serve()` process (default `http://127.0.0.1:3000`).
+Dashboard, REST, and MCP share one `Bun.serve()` process (default `http://127.0.0.1:3000`). Retrieval playground: `/playground`.
 
 ### Generate an API key
 

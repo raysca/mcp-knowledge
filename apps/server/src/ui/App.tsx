@@ -10,8 +10,9 @@ import {
   TableHeader,
   TableRow,
 } from "./components/ui/table.tsx";
+import { PlaygroundPage } from "./pages/playground.tsx";
 
-type Page = "documents" | "collections" | "jobs";
+type Page = "documents" | "collections" | "jobs" | "playground";
 
 type DocumentRow = {
   id: string;
@@ -35,14 +36,22 @@ export function App() {
       ? "collections"
       : location.pathname === "/jobs"
         ? "jobs"
-        : "documents";
+        : location.pathname === "/playground"
+          ? "playground"
+          : "documents";
   const [page, setPage] = useState<Page>(path);
 
   function go(next: Page) {
     history.pushState(
       {},
       "",
-      next === "collections" ? "/collections" : next === "jobs" ? "/jobs" : "/",
+      next === "collections"
+        ? "/collections"
+        : next === "jobs"
+          ? "/jobs"
+          : next === "playground"
+            ? "/playground"
+            : "/",
     );
     setPage(next);
   }
@@ -65,11 +74,22 @@ export function App() {
             <Tab active={page === "jobs"} onClick={() => go("jobs")}>
               Jobs
             </Tab>
+            <Tab active={page === "playground"} onClick={() => go("playground")}>
+              Playground
+            </Tab>
           </nav>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">
-        {page === "documents" ? <DocumentsPage /> : page === "collections" ? <CollectionsPage /> : <JobsPage />}
+        {page === "documents" ? (
+          <DocumentsPage />
+        ) : page === "collections" ? (
+          <CollectionsPage />
+        ) : page === "jobs" ? (
+          <JobsPage />
+        ) : (
+          <PlaygroundPage />
+        )}
       </main>
     </div>
   );

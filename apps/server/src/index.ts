@@ -13,6 +13,7 @@ const server = Bun.serve({
     "/": homepage,
     "/collections": homepage,
     "/jobs": homepage,
+    "/playground": homepage,
   },
   fetch: app.fetch,
 });
