@@ -7,6 +7,36 @@ export type FilterOp = FilterClause["op"];
 const FIELD = /^[A-Za-z0-9_.]+$/;
 const OPS: FilterOp[] = ["eq", "neq", "in", "exists", "gte", "lte"];
 
+type Scalar = string | number | boolean | null;
+function isScalar(v: unknown): v is Scalar {
+  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+}
+
+// ponytail: values reach the driver as bind parameters (packages/retrieval/src/where.ts) -
+// SQLite only binds numbers/strings/bigints/buffers/null. An array or object slipping through
+// (e.g. `{"year":{"gte":[2020]}}`, a plausible client typo) crashed with an uncaught driver
+// error -> 500 instead of a clean 400. Reject at parse time, before it's anywhere near SQL.
+function validateValue(field: string, op: FilterOp, value: unknown): void {
+  if (op === "exists") {
+    if (value !== undefined && typeof value !== "boolean") {
+      throw new AppError("INVALID_FILTER", `${field}.exists must be a boolean.`, 400);
+    }
+    return;
+  }
+  if (op === "in") {
+    if (!Array.isArray(value) || value.length === 0 || !value.every(isScalar)) {
+      throw new AppError("INVALID_FILTER", `${field}.in must be a non-empty array of scalars.`, 400);
+    }
+    return;
+  }
+  if ((op === "gte" || op === "lte") && typeof value !== "number") {
+    throw new AppError("INVALID_FILTER", `${field}.${op} must be a number.`, 400);
+  }
+  if (!isScalar(value)) {
+    throw new AppError("INVALID_FILTER", `${field}.${op} must be a scalar.`, 400);
+  }
+}
+
 export function parseFilters(raw: unknown): FilterClause[] {
   if (raw == null || raw === undefined) return [];
   if (typeof raw !== "object" || Array.isArray(raw)) {
@@ -20,12 +50,14 @@ export function parseFilters(raw: unknown): FilterClause[] {
       let any = false;
       for (const op of OPS) {
         if (op in obj) {
+          validateValue(field, op, obj[op]);
           clauses.push({ field, op, value: obj[op] });
           any = true;
         }
       }
       if (!any) throw new AppError("INVALID_FILTER", `Unknown operator on ${field}.`, 400);
     } else {
+      validateValue(field, "eq", spec);
       clauses.push({ field, op: "eq", value: spec });
     }
   }

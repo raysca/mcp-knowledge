@@ -28,6 +28,21 @@ describe("filters", () => {
   test("rejects unsafe field names", () => {
     expect(() => parseFilters({ "dept) OR 1=1": "x" })).toThrow(/Invalid filter field/);
   });
+
+  test("rejects non-scalar filter values instead of crashing the driver", () => {
+    // Regression: filter values are bound straight to the SQLite driver (where.ts), which
+    // only accepts numbers/strings/bigints/buffers/null. An array or object slipping through
+    // (a plausible client typo, e.g. gte: [2020] instead of gte: 2020) threw an uncaught
+    // driver error -> 500, instead of a clean 400 at the API boundary.
+    expect(() => parseFilters({ year: { gte: [2020] } })).toThrow(/INVALID_FILTER|must be a number/);
+    expect(() => parseFilters({ tags: { in: "not-an-array" } })).toThrow(/INVALID_FILTER|must be a/);
+    expect(() => parseFilters({ tags: { in: [] } })).toThrow(/INVALID_FILTER|must be a/);
+    expect(() => parseFilters({ department: { eq: { nested: true } } })).toThrow(/INVALID_FILTER|scalar/);
+    expect(() => parseFilters({ department: [1, 2] })).toThrow(/INVALID_FILTER|scalar/);
+    // valid shapes still pass
+    expect(() => parseFilters({ year: { gte: 2020 } })).not.toThrow();
+    expect(() => parseFilters({ tags: { in: ["a", "b"] } })).not.toThrow();
+  });
 });
 
 function unit(i: number, last = 0): number[] {

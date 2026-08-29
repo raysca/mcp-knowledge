@@ -1,4 +1,4 @@
-import { createClient, type Client } from "@libsql/client";
+import { createClient, type Client, type InValue } from "@libsql/client";
 import type { FilterClause, LexicalHit, LexicalIndex } from "@mcp-knowledge/core";
 import { extraWhere } from "../where.ts";
 
@@ -42,7 +42,8 @@ export class LibsqlLexicalIndex implements LexicalIndex {
     const match = ftsMatchQuery(input.query);
     if (!match) return [];
     const extra = extraWhere(input);
-    const args: unknown[] = [match, ...extra.args, input.limit];
+    // See vector/libsql.ts - extra.args is validated as scalars by parseFilters upstream.
+    const args: InValue[] = [match, ...(extra.args as InValue[]), input.limit];
     const sql = `SELECT c.id, c.document_id, c.revision_id, c.content, c.heading_path, c.location, d.title, rank
       FROM document_chunks_fts
       JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id

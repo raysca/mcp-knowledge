@@ -1,4 +1,4 @@
-import { createClient, type Client } from "@libsql/client";
+import { createClient, type Client, type InValue } from "@libsql/client";
 import type { EmbeddedChunk, FilterClause, VectorHit, VectorIndex } from "@mcp-knowledge/core";
 import { extraWhere } from "../where.ts";
 
@@ -49,10 +49,13 @@ export class LibsqlVectorIndex implements VectorIndex {
     // scan of the matching rows (filters inside the candidate query, before LIMIT). Unfiltered
     // path keeps the ANN index. Ceiling: large filtered corpora scan; add a filtered ANN if
     // a real corpus is big enough to feel it.
-    const args: unknown[] = [vectorLiteral(input.vector)];
+    // extra.args carries filter values validated as scalars by parseFilters before they ever
+    // reach here (packages/core/src/retrieval/filters.ts) - InValue is the driver's real bind
+    // type; the pipe from user JSON is typed unknown until that validation narrows it.
+    const args: InValue[] = [vectorLiteral(input.vector)];
     let sql: string;
     if (constrained) {
-      args.push(...extra.args, input.limit);
+      args.push(...(extra.args as InValue[]), input.limit);
       sql = `SELECT c.id, c.document_id, c.revision_id, c.content, c.heading_path, c.location, d.title,
         vector_distance_cos(c.embedding, vector32(?)) AS dist
         FROM document_chunks c
