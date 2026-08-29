@@ -30,7 +30,6 @@ export class IngestionService {
     private readonly countTokens: CountTokens,
     private readonly limits: {
       MAX_EXTRACT_BYTES: number;
-      MAX_DOCUMENT_PAGES: number;
       MAX_SPREADSHEET_CELLS: number;
       MAX_CHUNKS_PER_DOCUMENT: number;
     },
@@ -58,13 +57,13 @@ export class IngestionService {
     if (extractBytes > this.limits.MAX_EXTRACT_BYTES) {
       throw new AppError("DOCUMENT_RESOURCE_LIMIT", "Extracted text exceeds MAX_EXTRACT_BYTES.", 400);
     }
-    const pages = normalized.blocks.reduce((max, b) => {
-      const end = b.location?.pageEnd ?? b.location?.pageStart ?? 0;
-      return Math.max(max, end);
-    }, 0);
-    if (pages > this.limits.MAX_DOCUMENT_PAGES) {
-      throw new AppError("DOCUMENT_RESOURCE_LIMIT", "Document exceeds MAX_DOCUMENT_PAGES.", 400);
-    }
+    // ponytail: MAX_DOCUMENT_PAGES is not enforced here. @firecrawl/anydoc's Block/Document
+    // types (checked against 0.2.4) carry no page, slide, or section location at all for any
+    // format's success path - the field only exists on NeedsOcrError. A pages-based check
+    // against blocks that never carry a page number is dead code that only looks like a
+    // guard; MAX_EXTRACT_BYTES and MAX_CHUNKS_PER_DOCUMENT (both enforced below/above) are
+    // the real resource bounds for this parser. Revisit if a future anydoc version exposes
+    // page/slide provenance, which spec SourceLocation also needs for retrieval (M4+).
     if (cellCount(normalized.blocks) > this.limits.MAX_SPREADSHEET_CELLS) {
       throw new AppError("DOCUMENT_RESOURCE_LIMIT", "Spreadsheet exceeds MAX_SPREADSHEET_CELLS.", 400);
     }

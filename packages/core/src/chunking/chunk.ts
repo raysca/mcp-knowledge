@@ -160,17 +160,27 @@ export function chunkBlocks(
   }
   if (current) packed.push(current);
 
-  const last = packed[packed.length - 1];
-  const prev = packed[packed.length - 2];
-  if (last && prev && countTokens(last.text) < CHUNK_MIN) {
-    const merged = `${prev.text} ${last.text}`;
-    if (countTokens(merged) <= CHUNK_MAX) {
-      prev.text = merged;
-      packed.pop();
+  // Merge any chunk under CHUNK_MIN into its same-heading-path predecessor, not just a
+  // last-chunk special case — a short section anywhere in the document (a FAQ's one-line
+  // answer, a stray paragraph right before a new heading) produced an under-minimum chunk
+  // that nothing ever picked back up unless it happened to land last.
+  const sized: { headingPath: string[]; text: string }[] = [];
+  for (const piece of packed) {
+    const prevPiece = sized[sized.length - 1];
+    const samePath = prevPiece && prevPiece.headingPath.join("\0") === piece.headingPath.join("\0");
+    const eitherUndersized =
+      prevPiece && (countTokens(prevPiece.text) < CHUNK_MIN || countTokens(piece.text) < CHUNK_MIN);
+    if (samePath && prevPiece && eitherUndersized) {
+      const merged = `${prevPiece.text} ${piece.text}`;
+      if (countTokens(merged) <= CHUNK_MAX) {
+        prevPiece.text = merged;
+        continue;
+      }
     }
+    sized.push({ ...piece });
   }
 
-  return packed.map((p, sequence) => {
+  return sized.map((p, sequence) => {
     const content = p.text;
     const embeddingText = makeEmbeddingText(title, p.headingPath, content, countTokens);
     const hasher = new Bun.CryptoHasher("sha256");

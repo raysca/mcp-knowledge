@@ -58,6 +58,24 @@ describe("chunkBlocks", () => {
     expect(calls).toBeLessThan(chunks.length * 50);
   });
 
+  test("merges an under-minimum chunk that isn't the last chunk in the document", () => {
+    // Regression: only the very last two packed chunks were ever checked against CHUNK_MIN.
+    // A short trailing paragraph under a heading that isn't the document's last heading (here,
+    // "A" followed by "B") produced a permanently under-minimum chunk that nothing picked up.
+    const blocks: DocumentBlock[] = [
+      { type: "heading", level: 1, text: "A" },
+      { type: "paragraph", text: words(180) },
+      { type: "paragraph", text: words(5) },
+      { type: "heading", level: 1, text: "B" },
+      { type: "paragraph", text: words(50) },
+    ];
+    const chunks = chunkBlocks(blocks, { title: "Doc", revisionHash: "abc", countTokens });
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]!.headingPath).toEqual(["A"]);
+    expect(chunks[0]!.tokenCount).toBeGreaterThanOrEqual(64);
+    expect(chunks[1]!.headingPath).toEqual(["B"]);
+  });
+
   test("ids are deterministic for the same input", () => {
     const blocks: DocumentBlock[] = [{ type: "paragraph", text: "same text" }];
     const a = chunkBlocks(blocks, { title: "Doc", revisionHash: "abc", countTokens });
