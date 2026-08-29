@@ -71,6 +71,8 @@ export type KnowledgeRepository = {
     documentId: string,
     q: { limit: number; cursor?: string },
   ): Promise<{ items: StoredChunk[]; nextCursor?: string }>;
+  getChunk(id: string): Promise<StoredChunk | null>;
+  listRevisionChunks(revisionId: string): Promise<StoredChunk[]>;
   enqueueJob(input: { documentId: string; revisionId: string }): Promise<IngestionJob>;
   claimJob(workerId: string, leaseMs: number): Promise<IngestionJob | null>;
   completeJob(id: string): Promise<void>;
@@ -114,13 +116,43 @@ export type VectorHit = {
   vectorScore: number;
 };
 
+export type LexicalHit = {
+  chunkId: string;
+  documentId: string;
+  revisionId: string;
+  title?: string;
+  content: string;
+  headingPath: string[];
+  location?: Record<string, unknown>;
+  score: number;
+  lexicalRank: number;
+  lexicalScore: number;
+};
+
+export type FilterClause = {
+  field: string;
+  op: "eq" | "neq" | "in" | "exists" | "gte" | "lte";
+  value?: unknown;
+};
+
 export type VectorIndex = {
   insert(chunks: EmbeddedChunk[]): Promise<void>;
   search(input: {
     collectionIds?: string[];
     documentIds?: string[];
+    filters?: FilterClause[];
     vector: number[];
     limit: number;
   }): Promise<VectorHit[]>;
   deleteRevision(revisionId: string): Promise<void>;
+};
+
+export type LexicalIndex = {
+  search(input: {
+    query: string;
+    collectionIds?: string[];
+    documentIds?: string[];
+    filters?: FilterClause[];
+    limit: number;
+  }): Promise<LexicalHit[]>;
 };

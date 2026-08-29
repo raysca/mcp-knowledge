@@ -155,6 +155,21 @@ export async function handleRequest(req: Request, svc: AppServices): Promise<Res
       return json(result, 200, requestId);
     }
 
+    const chunkMatch = url.pathname.match(/^\/api\/v1\/chunks\/([^/]+)$/);
+    if (chunkMatch && req.method === "GET") {
+      const id = decodeURIComponent(chunkMatch[1]!);
+      const before = Number(url.searchParams.get("before") ?? 0);
+      const after = Number(url.searchParams.get("after") ?? 0);
+      return json(
+        await svc.documents.chunk(id, {
+          before: Number.isFinite(before) ? before : 0,
+          after: Number.isFinite(after) ? after : 0,
+        }),
+        200,
+        requestId,
+      );
+    }
+
     const normalizedMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/normalized$/);
     if (normalizedMatch && req.method === "GET") {
       const id = decodeURIComponent(normalizedMatch[1]!);
@@ -173,8 +188,11 @@ export async function handleRequest(req: Request, svc: AppServices): Promise<Res
         query?: string;
         collectionIds?: string[];
         documentIds?: string[];
+        filters?: unknown;
         mode?: string;
         limit?: number;
+        expand?: { type?: string; before?: number; after?: number };
+        explain?: boolean;
       };
       const limit = clampLimit(
         body.limit == null ? null : String(body.limit),
@@ -186,8 +204,42 @@ export async function handleRequest(req: Request, svc: AppServices): Promise<Res
           query: body.query ?? "",
           collectionIds: body.collectionIds,
           documentIds: body.documentIds,
+          filters: body.filters,
           mode: body.mode,
           limit,
+          expand: body.expand,
+          explain: body.explain,
+        }),
+        200,
+        requestId,
+      );
+    }
+
+    if (url.pathname === "/api/v1/search/explain" && req.method === "POST") {
+      const body = (await req.json()) as {
+        query?: string;
+        collectionIds?: string[];
+        documentIds?: string[];
+        filters?: unknown;
+        mode?: string;
+        limit?: number;
+        expand?: { type?: string; before?: number; after?: number };
+      };
+      const limit = clampLimit(
+        body.limit == null ? null : String(body.limit),
+        svc.env.MAX_SEARCH_LIMIT_API,
+        svc.env.DEFAULT_SEARCH_LIMIT,
+      );
+      return json(
+        await svc.search.search({
+          query: body.query ?? "",
+          collectionIds: body.collectionIds,
+          documentIds: body.documentIds,
+          filters: body.filters,
+          mode: body.mode,
+          limit,
+          expand: body.expand,
+          explain: true,
         }),
         200,
         requestId,

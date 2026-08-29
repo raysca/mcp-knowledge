@@ -351,6 +351,20 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
     };
   }
 
+  async getChunk(id: string): Promise<StoredChunk | null> {
+    const rows = await this.db.select().from(documentChunks).where(eq(documentChunks.id, id)).limit(1);
+    return rows[0] ? toChunk(rows[0]) : null;
+  }
+
+  async listRevisionChunks(revisionId: string): Promise<StoredChunk[]> {
+    const rows = await this.db
+      .select()
+      .from(documentChunks)
+      .where(eq(documentChunks.revisionId, revisionId))
+      .orderBy(documentChunks.sequence);
+    return rows.map(toChunk);
+  }
+
   async enqueueJob(input: { documentId: string; revisionId: string }): Promise<IngestionJob> {
     const now = new Date();
     const row = {

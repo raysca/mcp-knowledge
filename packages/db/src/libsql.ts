@@ -25,6 +25,15 @@ export async function migrateLibsql(url: string): Promise<void> {
     ).text();
     await client.executeMultiple(alter);
   }
+  const fts = await client.execute(
+    "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name = 'document_chunks_fts'",
+  );
+  if (fts.rows.length === 0) {
+    const sql = await Bun.file(
+      new URL("../../../drizzle/0003_fts.sql", import.meta.url),
+    ).text();
+    await client.executeMultiple(sql);
+  }
   client.close();
 }
 

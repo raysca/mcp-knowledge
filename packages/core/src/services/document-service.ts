@@ -113,6 +113,18 @@ export class DocumentService {
     return this.repo.listChunks(id, q);
   }
 
+  async chunk(id: string, q: { before?: number; after?: number }) {
+    const chunk = await this.repo.getChunk(id);
+    if (!chunk) throw new AppError("NOT_FOUND", "Chunk was not found.", 404);
+    const before = Math.min(5, Math.max(0, q.before ?? 0));
+    const after = Math.min(5, Math.max(0, q.after ?? 0));
+    const all = await this.repo.listRevisionChunks(chunk.revisionId);
+    const neighbors = all.filter(
+      (c) => c.sequence >= chunk.sequence - before && c.sequence <= chunk.sequence + after,
+    );
+    return { items: neighbors };
+  }
+
   async normalized(id: string): Promise<unknown> {
     const doc = await this.get(id);
     if (!doc.currentRevisionId) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);

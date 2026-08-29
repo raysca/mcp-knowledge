@@ -1,0 +1,12 @@
+[
+  { "query": "chlorophyll photosynthesis in plant leaves", "file": "01-plants.md", "k": 5 },
+  { "query": "qubits Shor algorithm", "file": "02-quantum.md", "k": 5 },
+  { "query": "kubernetes pod YAML", "file": "03-kubernetes.md", "k": 5 },
+  { "query": "sourdough starter wild yeast", "file": "04-sourdough.md", "k": 5 },
+  { "query": "olympic 100 metre freestyle", "file": "05-swimming.md", "k": 5 },
+  { "query": "roman pozzolanic concrete aqueduct", "file": "06-aqueducts.md", "k": 5 },
+  { "query": "Coltrane bebop saxophone", "file": "07-jazz.md", "k": 5 },
+  { "query": "tectonic plates earthquakes fault", "file": "08-tectonics.md", "k": 5 },
+  { "query": "INV-0042", "file": "09-invoice.md", "k": 5 },
+  { "query": "rust borrow checker lifetimes", "file": "10-rust.md", "k": 5 }
+]
