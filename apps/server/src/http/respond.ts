@@ -1,7 +1,13 @@
 import { AppError, errorBody, newId } from "@mcp-knowledge/core";
 
+// ponytail: a client-supplied header can contain characters (CRLF, control chars) that make
+// `new Response()` throw when we echo it back — verified: crashes every request that reaches
+// json()/errorResponse with that header. Only reuse it if it's safe to put back in a header.
+const SAFE_REQUEST_ID = /^[\x21-\x7e]{1,200}$/;
+
 export function requestIdOf(req: Request): string {
-  return req.headers.get("x-request-id") ?? newId("req");
+  const supplied = req.headers.get("x-request-id");
+  return supplied && SAFE_REQUEST_ID.test(supplied) ? supplied : newId("req");
 }
 
 export function json(data: unknown, status: number, requestId: string): Response {

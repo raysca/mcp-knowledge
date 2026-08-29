@@ -1,4 +1,4 @@
-import type { Collection, Document } from "../domain/types.ts";
+import type { Collection, Document } from "./domain/types.ts";
 
 export type ListDocumentsQuery = {
   collectionId?: string;

@@ -125,6 +125,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     URL_FETCH_TIMEOUT_MS: int(source.URL_FETCH_TIMEOUT_MS, 30_000),
     URL_FETCH_MAX_REDIRECTS: int(source.URL_FETCH_MAX_REDIRECTS, 3),
     WEBHOOK_TIMEOUT_MS: int(source.WEBHOOK_TIMEOUT_MS, 10_000),
-    AUTH_DISABLED: bool(source.AUTH_DISABLED, profile === "local"),
+    // Must be an explicit opt-in, never a profile default (go-live plan, M5 auth design):
+    // Docker's `-p` port publishing requires binding 0.0.0.0 inside the container even for
+    // the "local" profile, so defaulting this true would silently expose an unauthenticated
+    // API to anything that can reach the host's network interfaces, not just localhost.
+    AUTH_DISABLED: bool(source.AUTH_DISABLED, false),
   };
 }

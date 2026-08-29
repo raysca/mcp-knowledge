@@ -66,7 +66,7 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
     const row = {
       id: newId("col"),
       name: input.name,
-      description: input.description,
+      description: input.description ?? null,
       createdAt: now,
       updatedAt: now,
     };

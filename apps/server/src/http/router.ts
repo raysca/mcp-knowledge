@@ -77,6 +77,25 @@ export async function handleRequest(req: Request, svc: AppServices): Promise<Res
     }
 
     if (url.pathname === "/api/v1/documents" && req.method === "POST") {
+      // ponytail: Content-Length bounds the whole multipart body (boundary + headers + file),
+      // not just the file bytes MAX_UPLOAD_BYTES is checked against downstream — so this can
+      // only reject bodies that are already way past any reasonable multipart overhead, not
+      // enforce the limit precisely (that stays DocumentService's job, post-parse). It's also
+      // client-declared and spoofable via chunked encoding. Good enough to stop a multi-GB
+      // body from being buffered at all; a real streaming multipart cap is the full fix, add
+      // it if a public server-profile deployment makes the spoofed case a real threat.
+      const MULTIPART_OVERHEAD_SLACK = 64 * 1024;
+      const declaredLength = Number(req.headers.get("content-length"));
+      if (
+        Number.isFinite(declaredLength) &&
+        declaredLength > svc.env.MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_SLACK
+      ) {
+        return json(
+          { error: { code: "PAYLOAD_TOO_LARGE", message: "Upload exceeds MAX_UPLOAD_BYTES.", requestId } },
+          413,
+          requestId,
+        );
+      }
       const form = await req.formData();
       const file = form.get("file");
       if (!(file instanceof File)) {

@@ -52,7 +52,9 @@ export class DocumentService {
     const documentId = newId("doc");
     const revisionId = newId("rev");
     const storageKey = originalStorageKey(documentId, revisionId);
-    await this.blobs.put(storageKey, new Blob([input.bytes]));
+    // ponytail: cast is a TS lib quirk (Uint8Array<ArrayBufferLike> vs BlobPart's stricter
+    // ArrayBuffer bound), not a real type hole — Bun's Blob accepts a Uint8Array at runtime.
+    await this.blobs.put(storageKey, new Blob([input.bytes as unknown as BlobPart]));
     const created = await this.repo.createDocument({
       documentId,
       revisionId,

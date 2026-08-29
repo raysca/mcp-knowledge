@@ -29,7 +29,7 @@ describe("documents API", () => {
 
   function upload(filename: string, body: string | Uint8Array) {
     const form = new FormData();
-    form.set("file", new File([body], filename));
+    form.set("file", new File([body as BlobPart], filename)); // ponytail: same BlobPart lib quirk as document-service.ts
     return fetch(`${base}/api/v1/documents`, { method: "POST", body: form });
   }
 
