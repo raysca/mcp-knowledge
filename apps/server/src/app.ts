@@ -1,9 +1,11 @@
 import { resolve } from "node:path";
 import {
+  ApiKeyService,
   CollectionService,
   DocumentService,
   IngestionService,
   SearchService,
+  UrlIngestService,
   loadWordPiece,
 } from "@mcp-knowledge/core";
 import { createKnowledgeRepository, migrateLibsql } from "@mcp-knowledge/db";
@@ -16,7 +18,10 @@ import { handleRequest, type AppServices } from "./http/router.ts";
 import { startWorkerLoop } from "./workers/loop.ts";
 
 export async function createApp(env: AppEnv): Promise<{
-  fetch: (req: Request) => Promise<Response>;
+  fetch: (
+    req: Request,
+    server?: { requestIP?: (req: Request) => { address: string } | null },
+  ) => Promise<Response>;
   services: AppServices;
   stop: () => void;
 }> {
@@ -42,6 +47,8 @@ export async function createApp(env: AppEnv): Promise<{
     documents,
     collections: new CollectionService(repo),
     search: new SearchService(embedder, vectors, lexical, repo, env),
+    keys: new ApiKeyService(repo),
+    urls: new UrlIngestService(documents, env),
   };
   const stopWorker =
     env.ROLE === "api"
@@ -55,6 +62,6 @@ export async function createApp(env: AppEnv): Promise<{
   return {
     services,
     stop: stopWorker,
-    fetch: (req) => handleRequest(req, services),
+    fetch: (req, server) => handleRequest(req, services, server?.requestIP?.(req)?.address),
   };
 }

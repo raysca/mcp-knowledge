@@ -1,5 +1,14 @@
-import type { CollectionService, DocumentService, SearchService } from "@mcp-knowledge/core";
+import type {
+  ApiKeyService,
+  CollectionService,
+  DocumentService,
+  SearchService,
+  UrlIngestService,
+} from "@mcp-knowledge/core";
+import { AppError } from "@mcp-knowledge/core";
 import type { AppEnv } from "../config/env.ts";
+import { handleMcp } from "../mcp/handler.ts";
+import { requiredScope, scopeAllows, shouldSkipAuth } from "./auth.ts";
 import { clampLimit, errorResponse, json, requestIdOf } from "./respond.ts";
 
 export type AppServices = {
@@ -7,6 +16,8 @@ export type AppServices = {
   documents: DocumentService;
   collections: CollectionService;
   search: SearchService;
+  keys: ApiKeyService;
+  urls: UrlIngestService;
 };
 
 function documentJson(doc: Awaited<ReturnType<DocumentService["get"]>>) {
@@ -28,12 +39,91 @@ function documentJson(doc: Awaited<ReturnType<DocumentService["get"]>>) {
   };
 }
 
-export async function handleRequest(req: Request, svc: AppServices): Promise<Response> {
+export async function handleRequest(
+  req: Request,
+  svc: AppServices,
+  remoteAddress?: string,
+): Promise<Response> {
   const requestId = requestIdOf(req);
   const url = new URL(req.url);
   try {
     if (url.pathname === "/health" && req.method === "GET") {
       return json({ ok: true }, 200, requestId);
+    }
+
+    const need = requiredScope(req.method, url.pathname);
+    if (need && !shouldSkipAuth(svc.env, remoteAddress)) {
+      const header = req.headers.get("authorization");
+      const bearer = header?.startsWith("Bearer ") ? header.slice(7).trim() : null;
+      const key = await svc.keys.authenticate(bearer);
+      if (!scopeAllows(key.scopes, need)) {
+        throw new AppError("FORBIDDEN", "API key lacks required scope.", 403);
+      }
+    }
+
+    if (url.pathname === "/mcp" && req.method === "POST") {
+      const result = await handleMcp(await req.json(), svc);
+      if (result === undefined) {
+        return new Response(null, { status: 202, headers: { "x-request-id": requestId } });
+      }
+      return json(result, 200, requestId);
+    }
+
+    if (url.pathname === "/api/v1/api-keys" && req.method === "GET") {
+      const items = await svc.keys.list();
+      return json(
+        {
+          items: items.map((k) => ({
+            id: k.id,
+            name: k.name,
+            keyPrefix: k.keyPrefix,
+            scopes: k.scopes,
+            createdAt: k.createdAt.toISOString(),
+            lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
+          })),
+        },
+        200,
+        requestId,
+      );
+    }
+    if (url.pathname === "/api/v1/api-keys" && req.method === "POST") {
+      const body = (await req.json()) as { name?: string; scopes?: string[] };
+      const created = await svc.keys.create({ name: body.name ?? "", scopes: body.scopes });
+      return json(
+        {
+          id: created.key.id,
+          name: created.key.name,
+          keyPrefix: created.key.keyPrefix,
+          scopes: created.key.scopes,
+          secret: created.secret,
+          createdAt: created.key.createdAt.toISOString(),
+        },
+        201,
+        requestId,
+      );
+    }
+
+    if (url.pathname === "/api/v1/documents/from-url" && req.method === "POST") {
+      const body = (await req.json()) as {
+        url?: string;
+        collectionId?: string;
+        metadata?: Record<string, unknown>;
+      };
+      const result = await svc.urls.ingest({
+        url: body.url ?? "",
+        collectionId: body.collectionId,
+        metadata: body.metadata,
+      });
+      return json(
+        {
+          id: result.document.id,
+          status: result.document.status,
+          revision: result.revision,
+          duplicate: result.duplicate,
+        },
+        result.status,
+        requestId,
+      );
     }
 
     if (url.pathname === "/api/v1/collections" && req.method === "GET") {

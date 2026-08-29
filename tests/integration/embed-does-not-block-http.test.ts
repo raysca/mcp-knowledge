@@ -14,6 +14,7 @@ describe("embed does not block HTTP", () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-knowledge-embed-http-"));
     const env = loadEnv({
+      AUTH_DISABLED: "true",
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
     });

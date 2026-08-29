@@ -110,3 +110,14 @@ export type SearchHit = {
   };
   metadata: Record<string, unknown>;
 };
+
+export type ApiKey = {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  keyHash: string;
+  scopes: string[];
+  createdAt: Date;
+  lastUsedAt?: Date;
+  revokedAt?: Date;
+};

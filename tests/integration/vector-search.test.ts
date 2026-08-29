@@ -34,6 +34,7 @@ describe("vector search", () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-knowledge-search-"));
     const env = loadEnv({
+      AUTH_DISABLED: "true",
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
     });

@@ -1,4 +1,4 @@
-import type { Collection, Document, DocumentRevision, IngestionJob, StoredChunk } from "./domain/types.ts";
+import type { Collection, Document, DocumentRevision, IngestionJob, StoredChunk, ApiKey } from "./domain/types.ts";
 import type { NormalizedDocument } from "./domain/normalized.ts";
 
 export type DocumentParser = {
@@ -81,6 +81,15 @@ export type KnowledgeRepository = {
   listJobs(): Promise<IngestionJob[]>;
   getJob(id: string): Promise<IngestionJob | null>;
   softDeleteDocument(id: string): Promise<void>;
+  createApiKey(input: {
+    name: string;
+    keyPrefix: string;
+    keyHash: string;
+    scopes: string[];
+  }): Promise<ApiKey>;
+  findApiKeyByHash(keyHash: string): Promise<ApiKey | null>;
+  listApiKeys(): Promise<ApiKey[]>;
+  touchApiKey(id: string): Promise<void>;
 };
 
 export type BlobStore = {

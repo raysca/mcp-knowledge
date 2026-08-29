@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type {
+  ApiKey,
   Collection,
   Document,
   DocumentRevision,
@@ -12,6 +13,7 @@ import { newId } from "@mcp-knowledge/core";
 import { createClient, type Client } from "@libsql/client";
 import { createLibsqlDb } from "./libsql.ts";
 import {
+  apiKeys,
   collections,
   documentChunks,
   documentRevisions,
@@ -472,10 +474,69 @@ RETURNING *`,
       .set({ status: "deleted", deletedAt: now, updatedAt: now })
       .where(eq(documents.id, id));
   }
+
+  async createApiKey(input: {
+    name: string;
+    keyPrefix: string;
+    keyHash: string;
+    scopes: string[];
+  }): Promise<ApiKey> {
+    const now = new Date();
+    const row = {
+      id: newId("key"),
+      name: input.name,
+      keyPrefix: input.keyPrefix,
+      keyHash: input.keyHash,
+      scopes: input.scopes,
+      createdAt: now,
+    };
+    await this.db.insert(apiKeys).values(row);
+    return toApiKey(row);
+  }
+
+  async findApiKeyByHash(keyHash: string): Promise<ApiKey | null> {
+    const rows = await this.db
+      .select()
+      .from(apiKeys)
+      .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
+      .limit(1);
+    return rows[0] ? toApiKey(rows[0]) : null;
+  }
+
+  async listApiKeys(): Promise<ApiKey[]> {
+    const rows = await this.db.select().from(apiKeys).orderBy(desc(apiKeys.createdAt));
+    return rows.map(toApiKey);
+  }
+
+  async touchApiKey(id: string): Promise<void> {
+    await this.db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, id));
+  }
 }
 
 export function createKnowledgeRepository(url: string): KnowledgeRepository {
   return new LibSqlKnowledgeRepository(createLibsqlDb(url), url);
+}
+
+function toApiKey(row: {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  keyHash: string;
+  scopes: string[];
+  createdAt: Date;
+  lastUsedAt?: Date | null;
+  revokedAt?: Date | null;
+}): ApiKey {
+  return {
+    id: row.id,
+    name: row.name,
+    keyPrefix: row.keyPrefix,
+    keyHash: row.keyHash,
+    scopes: row.scopes ?? [],
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt ?? undefined,
+    revokedAt: row.revokedAt ?? undefined,
+  };
 }
 
 function toChunk(row: typeof documentChunks.$inferSelect): StoredChunk {

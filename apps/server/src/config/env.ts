@@ -44,6 +44,7 @@ export type AppEnv = {
   URL_FETCH_MAX_REDIRECTS: number;
   WEBHOOK_TIMEOUT_MS: number;
   AUTH_DISABLED: boolean;
+  MAX_MCP_DOCUMENT_CHARS: number;
 };
 
 function int(raw: string | undefined, fallback: number): number {
@@ -130,5 +131,6 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     // the "local" profile, so defaulting this true would silently expose an unauthenticated
     // API to anything that can reach the host's network interfaces, not just localhost.
     AUTH_DISABLED: bool(source.AUTH_DISABLED, false),
+    MAX_MCP_DOCUMENT_CHARS: int(source.MAX_MCP_DOCUMENT_CHARS, 32_000),
   };
 }

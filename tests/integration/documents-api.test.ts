@@ -15,6 +15,7 @@ describe("documents API", () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-knowledge-"));
     const env = loadEnv({
+      AUTH_DISABLED: "true",
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
       MAX_UPLOAD_BYTES: "64",

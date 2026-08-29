@@ -3,6 +3,9 @@ export { ID_PREFIXES, newId, uuidv7, type IdPrefix } from "./ids.ts";
 export { CollectionService } from "./services/collection-service.ts";
 export { IngestionService, errorCodeOf, normalizedStorageKey } from "./services/ingestion-service.ts";
 export { SearchService } from "./services/search-service.ts";
+export { ApiKeyService } from "./services/api-key-service.ts";
+export { UrlIngestService } from "./services/url-ingest.ts";
+export { assertSafeUrl, isBlockedIp } from "./ssrf.ts";
 export { DocumentService, originalStorageKey } from "./services/document-service.ts";
 export { extensionOf, isAllowedUpload, sniffMime } from "./mime.ts";
 export type {
@@ -14,6 +17,7 @@ export type {
   JobStatus,
   StoredChunk,
   SearchHit,
+  ApiKey,
 } from "./domain/types.ts";
 export type {
   DocumentBlock,
