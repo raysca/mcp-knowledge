@@ -44,6 +44,8 @@ curl -sS http://127.0.0.1:3000/api/v1/documents \
 
 Use the same header on `/mcp`. MCP tools are read-only.
 
+Empty the corpus: `POST /api/v1/documents/purge` with `{ "confirm": "purge" }`. Collections and API keys stay.
+
 ### Cursor / Claude MCP (Streamable HTTP)
 
 ```json

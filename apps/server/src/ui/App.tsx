@@ -233,7 +233,7 @@ function DocumentsPage() {
         <p className="max-w-xl text-slate">
           Files move from processing to ready after parse and chunk. Failures show on Jobs.
         </p>
-        <div className="inline-flex items-center">
+        <div className="inline-flex items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -246,6 +246,31 @@ function DocumentsPage() {
           />
           <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()}>
             {busy ? "Uploading…" : "Upload file"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || items.length === 0}
+            onClick={() => {
+              if (!confirm("Delete every document, embedding, and stored file? Collections and API keys stay.")) return;
+              void (async () => {
+                setBusy(true);
+                const res = await fetch("/api/v1/documents/purge", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ confirm: "purge" }),
+                });
+                const data = (await res.json()) as { error?: { message: string } };
+                setBusy(false);
+                if (!res.ok) {
+                  setError(data.error?.message ?? "Purge failed.");
+                  return;
+                }
+                await reload();
+              })();
+            }}
+          >
+            Empty archive
           </Button>
         </div>
       </div>
