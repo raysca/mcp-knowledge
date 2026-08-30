@@ -101,33 +101,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS webhooks (
-  id TEXT PRIMARY KEY,
-  url TEXT NOT NULL,
-  events TEXT NOT NULL,
-  secret TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS webhook_deliveries (
-  id TEXT PRIMARY KEY,
-  webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
-  event_id TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  status TEXT NOT NULL,
-  attempt INTEGER NOT NULL DEFAULT 0,
-  http_status INTEGER,
-  last_error TEXT,
-  next_retry_at INTEGER,
-  created_at INTEGER NOT NULL,
-  delivered_at INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS system_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
+-- ponytail: webhooks/settings are post-v1. DROP so existing local DBs lose the empty tables.
+DROP TABLE IF EXISTS webhook_deliveries;
+DROP TABLE IF EXISTS webhooks;
+DROP TABLE IF EXISTS system_settings;

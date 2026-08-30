@@ -145,35 +145,5 @@ export const apiKeys = sqliteTable("api_keys", {
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
 });
 
-export const webhooks = sqliteTable("webhooks", {
-  id: text("id").primaryKey(),
-  url: text("url").notNull(),
-  events: text("events", { mode: "json" }).$type<string[]>().notNull(),
-  secret: text("secret").notNull(),
-  enabled: integer("enabled").notNull().default(1),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
-
-export const webhookDeliveries = sqliteTable("webhook_deliveries", {
-  id: text("id").primaryKey(),
-  webhookId: text("webhook_id")
-    .notNull()
-    .references(() => webhooks.id, { onDelete: "cascade" }),
-  eventId: text("event_id").notNull(),
-  eventType: text("event_type").notNull(),
-  payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
-  status: text("status").notNull(),
-  attempt: integer("attempt").notNull().default(0),
-  httpStatus: integer("http_status"),
-  lastError: text("last_error"),
-  nextRetryAt: integer("next_retry_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
-});
-
-export const systemSettings = sqliteTable("system_settings", {
-  key: text("key").primaryKey(),
-  value: text("value", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+// ponytail: webhooks/webhook_deliveries/system_settings dropped - post-v1 per CLAUDE.md,
+// no reader/writer existed. Re-add when a real integration needs push delivery.

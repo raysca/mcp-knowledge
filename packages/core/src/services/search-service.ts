@@ -133,17 +133,20 @@ export class SearchService {
               vectorRank: undefined as number | undefined,
               lexicalRank: i + 1,
             }));
-    const byId = new Map<string, VectorHit | (typeof lexical)[0]>();
-    for (const h of vector) byId.set(h.chunkId, h);
-    for (const h of lexical) if (!byId.has(h.chunkId)) byId.set(h.chunkId, h);
-
-    const vecById = new Map(vector.map((h) => [h.chunkId, h]));
-    const lexById = new Map(lexical.map((h) => [h.chunkId, h]));
+    type ById = { vec?: VectorHit; lex?: (typeof lexical)[0] };
+    const byId = new Map<string, ById>();
+    for (const h of vector) byId.set(h.chunkId, { vec: h });
+    for (const h of lexical) {
+      const entry = byId.get(h.chunkId);
+      if (entry) entry.lex = h;
+      else byId.set(h.chunkId, { lex: h });
+    }
     const top = fused.slice(0, input.limit);
     const revCache = new Map<string, StoredChunk[]>();
     const hits: SearchHit[] = [];
     for (const [i, row] of top.entries()) {
-      const src = byId.get(row.chunkId);
+      const entry = byId.get(row.chunkId);
+      const src = entry?.vec ?? entry?.lex;
       if (!src) continue;
       let content = src.content;
       if (expand.type !== "none") {
@@ -155,8 +158,8 @@ export class SearchService {
         const self = all.find((c) => c.id === src.chunkId);
         if (self) content = expandContent(self, all, expand);
       }
-      const v = vecById.get(row.chunkId);
-      const l = lexById.get(row.chunkId);
+      const v = entry?.vec;
+      const l = entry?.lex;
       hits.push({
         chunkId: src.chunkId,
         documentId: src.documentId,

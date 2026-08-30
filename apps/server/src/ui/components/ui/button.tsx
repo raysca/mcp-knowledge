@@ -10,7 +10,6 @@ const buttonVariants = cva(
         default: "bg-ink text-paper hover:bg-navy",
         outline: "border border-rule bg-transparent text-ink hover:bg-shelf",
         ghost: "text-ink hover:bg-shelf",
-        stamp: "bg-stamp text-paper hover:bg-stamp/90",
       },
       size: {
         default: "h-9",

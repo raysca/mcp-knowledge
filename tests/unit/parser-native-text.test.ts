@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createParserRegistry } from "../../packages/parser/src/index.ts";
+import { createParserRegistry, NativeTextParser } from "../../packages/parser/src/index.ts";
 
 async function parse(filename: string, text: string, mimeType?: string) {
-  const registry = createParserRegistry();
+  const registry = createParserRegistry([new NativeTextParser()]);
   const parser = registry.find({ extension: filename.split(".").pop(), mimeType });
   if (!parser) throw new Error(`no parser for ${filename}`);
   return parser.parse({ data: new Blob([text]), filename, mimeType });

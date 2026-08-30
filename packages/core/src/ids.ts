@@ -1,14 +1,4 @@
-export const ID_PREFIXES = [
-  "col",
-  "doc",
-  "rev",
-  "chk",
-  "job",
-  "key",
-  "wh",
-  "evt",
-  "req",
-] as const;
+export const ID_PREFIXES = ["col", "doc", "rev", "chk", "job", "key", "req"] as const;
 
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 

@@ -64,7 +64,7 @@ export function parseFilters(raw: unknown): FilterClause[] {
   return clauses;
 }
 
-function placeholders(n: number): string {
+export function placeholders(n: number): string {
   return Array.from({ length: n }, () => "?").join(",");
 }
 

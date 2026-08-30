@@ -1,19 +1,6 @@
 import { createClient, type Client, type InValue } from "@libsql/client";
 import type { FilterClause, LexicalHit, LexicalIndex } from "@mcp-knowledge/core";
-import { extraWhere } from "../where.ts";
-
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value == null) return fallback;
-  if (typeof value === "object") return value as T;
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
-  return fallback;
-}
+import { extraWhere, parseJson } from "../where.ts";
 
 export function ftsMatchQuery(raw: string): string {
   return raw

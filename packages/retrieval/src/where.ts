@@ -1,8 +1,17 @@
 import type { FilterClause } from "@mcp-knowledge/core";
-import { compileFilters } from "@mcp-knowledge/core";
+import { compileFilters, placeholders } from "@mcp-knowledge/core";
 
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => "?").join(",");
+export function parseJson<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback;
+  if (typeof value === "object") return value as T;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
 }
 
 export function extraWhere(input: {

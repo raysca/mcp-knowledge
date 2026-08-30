@@ -1,22 +1,9 @@
 import { createClient, type Client, type InValue } from "@libsql/client";
 import type { EmbeddedChunk, FilterClause, VectorHit, VectorIndex } from "@mcp-knowledge/core";
-import { extraWhere } from "../where.ts";
+import { extraWhere, parseJson } from "../where.ts";
 
 function vectorLiteral(v: number[]): string {
   return JSON.stringify(v);
-}
-
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value == null) return fallback;
-  if (typeof value === "object") return value as T;
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  }
-  return fallback;
 }
 
 export class LibsqlVectorIndex implements VectorIndex {

@@ -12,6 +12,10 @@ export type DocumentParser = {
   }): Promise<NormalizedDocument>;
 };
 
+export type ParserRegistry = {
+  find(input: { mimeType?: string; extension?: string }): DocumentParser | undefined;
+};
+
 export type ListDocumentsQuery = {
   collectionId?: string;
   status?: string;

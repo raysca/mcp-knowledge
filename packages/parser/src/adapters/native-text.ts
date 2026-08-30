@@ -1,11 +1,11 @@
+import { extname } from "node:path";
 import type { DocumentBlock, DocumentParser, NormalizedDocument } from "@mcp-knowledge/core";
 
-const EXTS = new Set(["txt", "md", "markdown", "html", "htm", "json", "xml"]);
+export const NATIVE_TEXT_EXTS = new Set(["txt", "md", "markdown", "html", "htm", "json", "xml"]);
 
 function extOf(filename: string): string | undefined {
-  const i = filename.lastIndexOf(".");
-  if (i <= 0) return undefined;
-  return filename.slice(i + 1).toLowerCase();
+  const ext = extname(filename).slice(1).toLowerCase();
+  return ext || undefined;
 }
 
 function stripTags(html: string): string {
@@ -56,7 +56,7 @@ export class NativeTextParser implements DocumentParser {
 
   supports(input: { mimeType?: string; extension?: string }): boolean {
     const ext = input.extension?.toLowerCase();
-    if (ext && EXTS.has(ext)) return true;
+    if (ext && NATIVE_TEXT_EXTS.has(ext)) return true;
     const mime = input.mimeType ?? "";
     return (
       mime === "text/plain" ||

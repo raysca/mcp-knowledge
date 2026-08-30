@@ -2,17 +2,13 @@ import { AppError } from "../errors.ts";
 import { chunkBlocks, type CountTokens } from "../chunking/chunk.ts";
 import type {
   BlobStore,
-  DocumentParser,
   EmbeddedChunk,
   Embedder,
   KnowledgeRepository,
+  ParserRegistry,
   VectorIndex,
 } from "../ports.ts";
 import type { IngestionJob, StoredChunk } from "../domain/types.ts";
-
-export type ParserRegistry = {
-  find(input: { mimeType?: string; extension?: string }): DocumentParser | undefined;
-};
 
 export function normalizedStorageKey(documentId: string, revisionId: string): string {
   return `documents/${documentId}/revisions/${revisionId}/normalized.json`;

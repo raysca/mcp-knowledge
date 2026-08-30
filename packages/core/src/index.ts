@@ -36,8 +36,8 @@ export type {
   VectorHit,
   VectorIndex,
 } from "./ports.ts";
-export type { DocumentParser } from "./ports.ts";
+export type { DocumentParser, ParserRegistry } from "./ports.ts";
 export { chunkBlocks } from "./chunking/chunk.ts";
 export { loadWordPiece } from "./chunking/wordpiece.ts";
-export { compileFilters, parseFilters } from "./retrieval/filters.ts";
-export { hybridRrf, rrf } from "./retrieval/rrf.ts";
+export { compileFilters, parseFilters, placeholders } from "./retrieval/filters.ts";
+export { hybridRrf } from "./retrieval/rrf.ts";

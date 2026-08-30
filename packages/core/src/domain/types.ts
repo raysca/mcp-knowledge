@@ -1,10 +1,4 @@
-export type DocumentStatus =
-  | "pending"
-  | "processing"
-  | "ready"
-  | "failed"
-  | "deleting"
-  | "deleted";
+export type DocumentStatus = "pending" | "processing" | "ready" | "failed" | "deleted";
 
 export type Collection = {
   id: string;
@@ -51,13 +45,7 @@ export type DocumentRevision = {
   createdAt: Date;
 };
 
-export type JobStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "retrying"
-  | "cancelled";
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "retrying";
 
 export type IngestionJob = {
   id: string;

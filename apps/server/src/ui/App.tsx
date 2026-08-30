@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog } from "./components/ui/dialog.tsx";
 import { Input } from "./components/ui/input.tsx";
@@ -13,6 +13,13 @@ import {
 import { PlaygroundPage } from "./pages/playground.tsx";
 
 type Page = "documents" | "collections" | "jobs" | "playground";
+
+const PAGE_PATHS: Record<Page, string> = {
+  documents: "/",
+  collections: "/collections",
+  jobs: "/jobs",
+  playground: "/playground",
+};
 
 type DocumentRow = {
   id: string;
@@ -97,28 +104,13 @@ export function App() {
 }
 
 function AppShell() {
-  const path =
-    location.pathname === "/collections"
-      ? "collections"
-      : location.pathname === "/jobs"
-        ? "jobs"
-        : location.pathname === "/playground"
-          ? "playground"
-          : "documents";
+  const path = (Object.keys(PAGE_PATHS) as Page[]).find(
+    (p) => PAGE_PATHS[p] === location.pathname,
+  ) ?? "documents";
   const [page, setPage] = useState<Page>(path);
 
   function go(next: Page) {
-    history.pushState(
-      {},
-      "",
-      next === "collections"
-        ? "/collections"
-        : next === "jobs"
-          ? "/jobs"
-          : next === "playground"
-            ? "/playground"
-            : "/",
-    );
+    history.pushState({}, "", PAGE_PATHS[next]);
     setPage(next);
   }
 
@@ -189,6 +181,7 @@ function DocumentsPage() {
   const [items, setItems] = useState<DocumentRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/v1/documents");
@@ -240,17 +233,21 @@ function DocumentsPage() {
         <p className="max-w-xl text-slate">
           Files move from processing to ready after parse and chunk. Failures show on Jobs.
         </p>
-        <label className="inline-flex cursor-pointer items-center">
+        <div className="inline-flex items-center">
           <input
+            ref={fileInputRef}
             type="file"
             className="sr-only"
             disabled={busy}
-            onChange={(e) => void onUpload(e.target.files?.[0])}
+            onChange={(e) => {
+              void onUpload(e.target.files?.[0]);
+              e.target.value = "";
+            }}
           />
-          <Button type="button" disabled={busy} onClick={(e) => (e.currentTarget.previousElementSibling as HTMLInputElement)?.click()}>
+          <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()}>
             {busy ? "Uploading…" : "Upload file"}
           </Button>
-        </label>
+        </div>
       </div>
       {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
       {items.length === 0 ? (
