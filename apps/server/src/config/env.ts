@@ -43,7 +43,7 @@ export type AppEnv = {
   URL_FETCH_TIMEOUT_MS: number;
   URL_FETCH_MAX_REDIRECTS: number;
   WEBHOOK_TIMEOUT_MS: number;
-  AUTH_DISABLED: boolean;
+  DASHBOARD_PASSPHRASE?: string;
   MAX_MCP_DOCUMENT_CHARS: number;
 };
 
@@ -52,11 +52,6 @@ function int(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) throw new Error(`Invalid integer: ${raw}`);
   return n;
-}
-
-function bool(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  return raw === "true" || raw === "1";
 }
 
 export function loadEnv(source: Record<string, string | undefined> = process.env): AppEnv {
@@ -77,6 +72,17 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   const storageDriver =
     (source.STORAGE_DRIVER as StorageDriver | undefined) ??
     (profile === "server" ? "s3" : "local");
+
+  const dashboardPassphrase = source.DASHBOARD_PASSPHRASE?.trim() || undefined;
+  // No network-position heuristics anywhere in auth: an unset passphrase means this instance
+  // has no dashboard/API protection at all (matches today's zero-config `bun dev`), and a set
+  // one is required and checked the same way regardless of who's asking or how they connect -
+  // loopback, LAN, or behind a legitimate reverse proxy. That's what makes it safe to front
+  // with a proxy at all, unlike the remote-address check this replaced. Server profile must
+  // never boot wide open by accident.
+  if (profile === "server" && !dashboardPassphrase) {
+    throw new Error("DASHBOARD_PASSPHRASE is required when APP_PROFILE=server.");
+  }
 
   return {
     APP_PROFILE: profile,
@@ -126,15 +132,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     URL_FETCH_TIMEOUT_MS: int(source.URL_FETCH_TIMEOUT_MS, 30_000),
     URL_FETCH_MAX_REDIRECTS: int(source.URL_FETCH_MAX_REDIRECTS, 3),
     WEBHOOK_TIMEOUT_MS: int(source.WEBHOOK_TIMEOUT_MS, 10_000),
-    // Must stay an explicit opt-in, never a profile default. shouldSkipAuth checks the real
-    // per-request remote address (Bun's server.requestIP), not the bind host, which correctly
-    // closes the Docker `-p`-requires-0.0.0.0 gap this comment used to only worry about. But
-    // it can't see through a reverse proxy: anyone who fronts the local profile with
-    // nginx/Caddy/Cloudflare Tunnel on the same box (a common way to reach a self-hosted tool
-    // remotely) has every real request arrive from the proxy's own loopback address - defaulting
-    // this true would silently grant every proxied caller a free pass, not just this machine's
-    // user. The one env var `bun dev` needs is a smaller cost than that failure mode.
-    AUTH_DISABLED: bool(source.AUTH_DISABLED, false),
+    DASHBOARD_PASSPHRASE: dashboardPassphrase,
     MAX_MCP_DOCUMENT_CHARS: int(source.MAX_MCP_DOCUMENT_CHARS, 32_000),
   };
 }

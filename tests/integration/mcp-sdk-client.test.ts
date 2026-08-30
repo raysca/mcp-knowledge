@@ -21,7 +21,6 @@ describe("MCP via the real SDK client", () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-sdk-"));
     const env = loadEnv({
-      AUTH_DISABLED: "true",
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
     });

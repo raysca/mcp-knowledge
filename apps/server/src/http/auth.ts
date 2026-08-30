@@ -1,16 +1,3 @@
-export function isLoopbackAddress(addr: string | null | undefined): boolean {
-  if (!addr) return false;
-  const a = addr.replace(/^::ffff:/i, "").toLowerCase();
-  return a === "127.0.0.1" || a === "::1" || a === "localhost";
-}
-
-export function shouldSkipAuth(
-  env: { AUTH_DISABLED: boolean },
-  remoteAddress?: string | null,
-): boolean {
-  return env.AUTH_DISABLED && isLoopbackAddress(remoteAddress);
-}
-
 export type AuthScope = "read" | "write" | "admin";
 
 export function scopeAllows(have: string[], need: AuthScope): boolean {
@@ -22,6 +9,9 @@ export function scopeAllows(have: string[], need: AuthScope): boolean {
 
 export function requiredScope(method: string, pathname: string): AuthScope | null {
   if (pathname === "/health") return null;
+  // The login/check/logout endpoints ARE the auth mechanism - they must be reachable
+  // without already holding a session or key.
+  if (pathname === "/api/v1/session") return null;
   if (pathname === "/mcp") return "read";
   if (!pathname.startsWith("/api/v1")) return null;
   if (pathname.startsWith("/api/v1/api-keys")) return "admin";

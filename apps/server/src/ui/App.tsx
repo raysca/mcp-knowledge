@@ -30,7 +30,73 @@ type CollectionRow = {
   description?: string | null;
 };
 
+type SessionState = "checking" | "open" | "locked" | "unlocked";
+
+function LoginGate({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<SessionState>("checking");
+  const [passphrase, setPassphrase] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const check = useCallback(async () => {
+    const res = await fetch("/api/v1/session");
+    const data = (await res.json()) as { passphraseRequired: boolean; authenticated: boolean };
+    setState(!data.passphraseRequired || data.authenticated ? "open" : "locked");
+  }, []);
+
+  useEffect(() => {
+    void check();
+  }, [check]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/v1/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError("Incorrect passphrase.");
+      return;
+    }
+    setState("unlocked");
+  }
+
+  if (state === "checking") return null;
+  if (state === "open" || state === "unlocked") return <>{children}</>;
+
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <form onSubmit={(e) => void submit(e)} className="w-full max-w-xs border border-rule bg-shelf/40 p-6">
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-navy">Local archive</p>
+        <h1 className="mb-4 font-display text-2xl">Enter passphrase</h1>
+        <Input
+          type="password"
+          autoFocus
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+        />
+        {error ? <p className="mt-2 text-sm text-stamp">{error}</p> : null}
+        <Button type="submit" className="mt-4 w-full" disabled={busy || !passphrase}>
+          {busy ? "Checking…" : "Unlock"}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 export function App() {
+  return (
+    <LoginGate>
+      <AppShell />
+    </LoginGate>
+  );
+}
+
+function AppShell() {
   const path =
     location.pathname === "/collections"
       ? "collections"

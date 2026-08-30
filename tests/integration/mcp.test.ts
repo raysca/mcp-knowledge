@@ -14,7 +14,6 @@ describe("MCP", () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-mcp-"));
     const env = loadEnv({
-      AUTH_DISABLED: "true",
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
     });

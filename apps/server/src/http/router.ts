@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type {
   ApiKeyService,
   CollectionService,
@@ -8,8 +9,16 @@ import type {
 import { AppError } from "@mcp-knowledge/core";
 import type { AppEnv } from "../config/env.ts";
 import { handleMcp } from "../mcp/handler.ts";
-import { requiredScope, scopeAllows, shouldSkipAuth } from "./auth.ts";
+import { requiredScope, scopeAllows } from "./auth.ts";
 import { clampLimit, errorResponse, json, requestIdOf } from "./respond.ts";
+import {
+  clearSessionCookieHeader,
+  loginRateLimited,
+  parseCookie,
+  sessionCookieHeader,
+  SESSION_COOKIE,
+  verifySessionCookieValue,
+} from "./session.ts";
 
 export type AppServices = {
   env: AppEnv;
@@ -51,13 +60,52 @@ export async function handleRequest(
       return json({ ok: true }, 200, requestId);
     }
 
+    const passphrase = svc.env.DASHBOARD_PASSPHRASE;
+
+    if (url.pathname === "/api/v1/session") {
+      if (req.method === "GET") {
+        const authed = !passphrase || verifySessionCookieValue(passphrase, parseCookie(req, SESSION_COOKIE));
+        return json({ passphraseRequired: Boolean(passphrase), authenticated: authed }, 200, requestId);
+      }
+      if (req.method === "POST") {
+        if (!passphrase) return json({ authenticated: true }, 200, requestId);
+        // Rate-limit by remote address, not by the (unauthenticated) request itself - the
+        // whole point is to slow down guessing, which means keying on who's guessing.
+        if (loginRateLimited(remoteAddress ?? "unknown")) {
+          throw new AppError("TOO_MANY_ATTEMPTS", "Too many login attempts. Try again later.", 429);
+        }
+        const body = (await req.json()) as { passphrase?: string };
+        const given = Buffer.from(body.passphrase ?? "", "utf8");
+        const want = Buffer.from(passphrase, "utf8");
+        const ok = given.length === want.length && timingSafeEqual(given, want);
+        if (!ok) throw new AppError("UNAUTHORIZED", "Incorrect passphrase.", 401);
+        return new Response(JSON.stringify({ authenticated: true }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-request-id": requestId,
+            "set-cookie": sessionCookieHeader(passphrase, svc.env.APP_PROFILE),
+          },
+        });
+      }
+      if (req.method === "DELETE") {
+        return new Response(null, {
+          status: 204,
+          headers: { "set-cookie": clearSessionCookieHeader(svc.env.APP_PROFILE) },
+        });
+      }
+    }
+
     const need = requiredScope(req.method, url.pathname);
-    if (need && !shouldSkipAuth(svc.env, remoteAddress)) {
-      const header = req.headers.get("authorization");
-      const bearer = header?.startsWith("Bearer ") ? header.slice(7).trim() : null;
-      const key = await svc.keys.authenticate(bearer);
-      if (!scopeAllows(key.scopes, need)) {
-        throw new AppError("FORBIDDEN", "API key lacks required scope.", 403);
+    if (need && passphrase) {
+      const hasSession = verifySessionCookieValue(passphrase, parseCookie(req, SESSION_COOKIE));
+      if (!hasSession) {
+        const header = req.headers.get("authorization");
+        const bearer = header?.startsWith("Bearer ") ? header.slice(7).trim() : null;
+        const key = await svc.keys.authenticate(bearer);
+        if (!scopeAllows(key.scopes, need)) {
+          throw new AppError("FORBIDDEN", "API key lacks required scope.", 403);
+        }
       }
     }
 
