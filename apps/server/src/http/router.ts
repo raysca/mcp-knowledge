@@ -151,6 +151,14 @@ export async function handleRequest(
       );
     }
 
+    if (url.pathname === "/api/v1/documents/purge" && req.method === "POST") {
+      const body = (await req.json()) as { confirm?: string };
+      if (body.confirm !== "purge") {
+        throw new AppError("INVALID_REQUEST", 'Send { "confirm": "purge" }.', 400);
+      }
+      return json(await svc.documents.purgeCorpus(), 200, requestId);
+    }
+
     if (url.pathname === "/api/v1/documents/from-url" && req.method === "POST") {
       const body = (await req.json()) as {
         url?: string;

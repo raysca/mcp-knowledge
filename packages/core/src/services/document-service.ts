@@ -155,4 +155,15 @@ export class DocumentService {
     await this.repo.setDocumentStatus(retried.documentId, "processing", null);
     return retried;
   }
+
+  async purgeCorpus(): Promise<{ deletedDocuments: number; deletedBlobs: number }> {
+    const keys = await this.repo.listRevisionBlobKeys();
+    let deletedBlobs = 0;
+    for (const key of keys) {
+      await this.blobs.delete(key);
+      deletedBlobs += 1;
+    }
+    const deletedDocuments = await this.repo.purgeDocuments();
+    return { deletedDocuments, deletedBlobs };
+  }
 }
