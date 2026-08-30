@@ -94,6 +94,8 @@ export type KnowledgeRepository = {
   findApiKeyByHash(keyHash: string): Promise<ApiKey | null>;
   listApiKeys(): Promise<ApiKey[]>;
   touchApiKey(id: string): Promise<void>;
+  listRevisionBlobKeys(): Promise<string[]>;
+  purgeDocuments(): Promise<number>;
 };
 
 export type BlobStore = {

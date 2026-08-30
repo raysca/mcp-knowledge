@@ -511,6 +511,28 @@ RETURNING *`,
   async touchApiKey(id: string): Promise<void> {
     await this.db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, id));
   }
+
+  async listRevisionBlobKeys(): Promise<string[]> {
+    const rows = await this.db
+      .select({
+        storageKey: documentRevisions.storageKey,
+        normalizedStorageKey: documentRevisions.normalizedStorageKey,
+      })
+      .from(documentRevisions);
+    const keys: string[] = [];
+    for (const row of rows) {
+      keys.push(row.storageKey);
+      if (row.normalizedStorageKey) keys.push(row.normalizedStorageKey);
+    }
+    return keys;
+  }
+
+  async purgeDocuments(): Promise<number> {
+    const existing = await this.db.select({ id: documents.id }).from(documents);
+    if (existing.length === 0) return 0;
+    await this.db.delete(documents);
+    return existing.length;
+  }
 }
 
 export function createKnowledgeRepository(url: string): KnowledgeRepository {
