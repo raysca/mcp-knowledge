@@ -29,14 +29,18 @@ export function startWorkerLoop(input: {
           }),
         ]);
       } catch (error) {
-        const failed = await input.repo.failJob(job.id, error instanceof Error ? error : new Error(String(error)));
-        const code = errorCodeOf(error);
-        const message = error instanceof Error ? error.message : String(error);
-        await input.repo.setDocumentStatus(
-          job.documentId,
-          failed.status === "failed" ? "failed" : "processing",
-          `${code}: ${message}`.slice(0, 2000),
-        );
+        try {
+          const failed = await input.repo.failJob(job.id, error instanceof Error ? error : new Error(String(error)));
+          const code = errorCodeOf(error);
+          const message = error instanceof Error ? error.message : String(error);
+          await input.repo.setDocumentStatus(
+            job.documentId,
+            failed.status === "failed" ? "failed" : "processing",
+            `${code}: ${message}`.slice(0, 2000),
+          );
+        } catch {
+          // job vanished (purge mid-flight); keep claiming
+        }
       }
     }
   }

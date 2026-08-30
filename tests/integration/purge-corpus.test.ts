@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
@@ -77,7 +77,9 @@ describe("purge corpus", () => {
     expect(purged.status).toBe(200);
     const counts = (await purged.json()) as { deletedDocuments: number; deletedBlobs: number };
     expect(counts.deletedDocuments).toBe(1);
-    expect(counts.deletedBlobs).toBeGreaterThan(0);
+    expect(counts.deletedBlobs).toBe(2);
+    const leftover = await readdir(join(dir, "blobs"), { recursive: true, withFileTypes: true });
+    expect(leftover.filter((e) => e.isFile())).toEqual([]);
 
     const listed = await (await fetch(`${base}/api/v1/documents`)).json() as { items: unknown[] };
     expect(listed.items).toEqual([]);
