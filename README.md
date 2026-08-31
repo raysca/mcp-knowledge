@@ -64,3 +64,17 @@ Empty the corpus: `POST /api/v1/documents/purge` with `{ "confirm": "purge" }`. 
 If no `DASHBOARD_PASSPHRASE` is set, the header can be omitted entirely.
 
 URL ingest: `POST /api/v1/documents/from-url` with `{ "url": "https://..." }`. Localhost, RFC1918, link-local, and cloud metadata targets are blocked (including redirects).
+
+### Import a local directory on startup
+
+Set `INGEST_DATA_DIR` to scan one local directory in the background after the server starts:
+
+```bash
+INGEST_DATA_DIR=./knowledge bun dev
+```
+
+`INGEST_DATA_MAX_DEPTH` defaults to `8` (`0` means root files only) and
+`INGEST_DATA_MAX_FILES` defaults to `10000`. Scanning runs only with the local
+profile and `ROLE=all`. Missing files do not remove documents; changed and
+renamed scanner-owned files replace the prior document. Progress appears on
+the Jobs page.
