@@ -12,6 +12,7 @@
     "@mcp-knowledge/storage": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "fast-glob": "^3.3.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tailwind-merge": "^3.3.1"

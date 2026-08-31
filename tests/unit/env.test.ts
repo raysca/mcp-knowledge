@@ -40,4 +40,26 @@ describe("loadEnv", () => {
     expect(env.STORAGE_DRIVER).toBe("s3");
     expect(env.WORKER_CONCURRENCY).toBe(4);
   });
+
+  test("startup scan defaults are disabled, depth 8, and 10,000 files", () => {
+    const env = loadEnv({});
+    expect(env.INGEST_DATA_DIR).toBeUndefined();
+    expect(env.INGEST_DATA_MAX_DEPTH).toBe(8);
+    expect(env.INGEST_DATA_MAX_FILES).toBe(10_000);
+  });
+
+  test("startup scan configuration accepts depth zero and rejects invalid bounds", () => {
+    expect(loadEnv({
+      INGEST_DATA_DIR: " ./knowledge ",
+      INGEST_DATA_MAX_DEPTH: "0",
+      INGEST_DATA_MAX_FILES: "1",
+    })).toMatchObject({
+      INGEST_DATA_DIR: "./knowledge",
+      INGEST_DATA_MAX_DEPTH: 0,
+      INGEST_DATA_MAX_FILES: 1,
+    });
+    expect(() => loadEnv({ INGEST_DATA_MAX_DEPTH: "-1" })).toThrow(/INGEST_DATA_MAX_DEPTH/);
+    expect(() => loadEnv({ INGEST_DATA_MAX_DEPTH: "1.5" })).toThrow(/INGEST_DATA_MAX_DEPTH/);
+    expect(() => loadEnv({ INGEST_DATA_MAX_FILES: "0" })).toThrow(/INGEST_DATA_MAX_FILES/);
+  });
 });

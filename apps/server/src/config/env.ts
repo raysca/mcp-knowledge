@@ -45,6 +45,9 @@ export type AppEnv = {
   WEBHOOK_TIMEOUT_MS: number;
   DASHBOARD_PASSPHRASE?: string;
   MAX_MCP_DOCUMENT_CHARS: number;
+  INGEST_DATA_DIR?: string;
+  INGEST_DATA_MAX_DEPTH: number;
+  INGEST_DATA_MAX_FILES: number;
 };
 
 function int(raw: string | undefined, fallback: number): number {
@@ -52,6 +55,19 @@ function int(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) throw new Error(`Invalid integer: ${raw}`);
   return n;
+}
+
+function boundedInteger(
+  name: string,
+  raw: string | undefined,
+  fallback: number,
+  minimum: number,
+): number {
+  const value = raw === undefined || raw === "" ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum) {
+    throw new Error(`${name} must be an integer >= ${minimum}.`);
+  }
+  return value;
 }
 
 export function loadEnv(source: Record<string, string | undefined> = process.env): AppEnv {
@@ -74,6 +90,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     (profile === "server" ? "s3" : "local");
 
   const dashboardPassphrase = source.DASHBOARD_PASSPHRASE?.trim() || undefined;
+  const ingestDataDir = source.INGEST_DATA_DIR?.trim() || undefined;
   // No network-position heuristics anywhere in auth: an unset passphrase means this instance
   // has no dashboard/API protection at all (matches today's zero-config `bun dev`), and a set
   // one is required and checked the same way regardless of who's asking or how they connect -
@@ -134,5 +151,18 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     WEBHOOK_TIMEOUT_MS: int(source.WEBHOOK_TIMEOUT_MS, 10_000),
     DASHBOARD_PASSPHRASE: dashboardPassphrase,
     MAX_MCP_DOCUMENT_CHARS: int(source.MAX_MCP_DOCUMENT_CHARS, 32_000),
+    INGEST_DATA_DIR: ingestDataDir,
+    INGEST_DATA_MAX_DEPTH: boundedInteger(
+      "INGEST_DATA_MAX_DEPTH",
+      source.INGEST_DATA_MAX_DEPTH,
+      8,
+      0,
+    ),
+    INGEST_DATA_MAX_FILES: boundedInteger(
+      "INGEST_DATA_MAX_FILES",
+      source.INGEST_DATA_MAX_FILES,
+      10_000,
+      1,
+    ),
   };
 }
