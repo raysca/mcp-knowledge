@@ -19,4 +19,5 @@ const server = Bun.serve({
   fetch: app.fetch,
 });
 
+app.startStartupScan();
 console.log(`listening on http://${server.hostname}:${server.port}`);

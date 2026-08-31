@@ -5,6 +5,7 @@ import {
   DocumentService,
   IngestionService,
   SearchService,
+  SourceImportService,
   UrlIngestService,
   loadWordPiece,
 } from "@mcp-knowledge/core";
@@ -15,14 +16,27 @@ import { LibsqlLexicalIndex, LibsqlVectorIndex } from "@mcp-knowledge/retrieval"
 import { createBlobStore } from "@mcp-knowledge/storage";
 import type { AppEnv } from "./config/env.ts";
 import { handleRequest, type AppServices } from "./http/router.ts";
+import { LocalDirectorySource } from "./startup-scan/local-directory-source.ts";
+import { StartupIngestionCoordinator } from "./startup-scan/coordinator.ts";
 import { startWorkerLoop } from "./workers/loop.ts";
 
-export async function createApp(env: AppEnv): Promise<{
+export type AppOverrides = {
+  createDirectorySource?: (input: {
+    root: string;
+    maxDepth: number;
+  }) => Promise<Pick<
+    LocalDirectorySource,
+    "sourceId" | "configurationFingerprint" | "candidates" | "inspectAndRead" | "pathState"
+  >>;
+};
+
+export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Promise<{
   fetch: (
     req: Request,
     server?: { requestIP?: (req: Request) => { address: string } | null },
   ) => Promise<Response>;
   services: AppServices;
+  startStartupScan: () => void;
   stop: () => void;
 }> {
   if (env.DATABASE_DRIVER !== "libsql") {
@@ -59,9 +73,44 @@ export async function createApp(env: AppEnv): Promise<{
           leaseMs: env.JOB_LEASE_MS,
           ingestionTimeoutMs: env.INGESTION_TIMEOUT_MS,
         });
+  const createDirectorySource = overrides.createDirectorySource ?? LocalDirectorySource.create;
+  const disabledReason = !env.INGEST_DATA_DIR
+    ? "not_configured"
+    : env.APP_PROFILE !== "local"
+      ? "unsupported_profile"
+      : env.ROLE !== "all"
+        ? "unsupported_role"
+        : undefined;
+  const sourceFactory = disabledReason
+    ? undefined
+    : () =>
+        createDirectorySource({
+          root: env.INGEST_DATA_DIR!,
+          maxDepth: env.INGEST_DATA_MAX_DEPTH,
+        });
+  const startupScan = new StartupIngestionCoordinator({
+    repo,
+    maxFiles: env.INGEST_DATA_MAX_FILES,
+    disabledReason,
+    createSource: sourceFactory,
+    createImporter: sourceFactory
+      ? (source, signal) =>
+          new SourceImportService({
+            source,
+            repo,
+            blobs,
+            maxUploadBytes: env.MAX_UPLOAD_BYTES,
+            signal,
+          })
+      : undefined,
+  });
   return {
     services,
-    stop: stopWorker,
+    startStartupScan: () => startupScan.start(),
+    stop: () => {
+      startupScan.stop();
+      stopWorker();
+    },
     fetch: (req, server) => handleRequest(req, services, server?.requestIP?.(req)?.address),
   };
 }
