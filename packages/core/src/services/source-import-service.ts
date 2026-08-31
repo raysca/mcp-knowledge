@@ -55,6 +55,12 @@ function shortErrorMessage(error: unknown): string {
   return "Source file could not be processed.";
 }
 
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown; name?: unknown };
+  return value.name === "AbortError" || value.code === "ABORT_ERR";
+}
+
 export class SourceImportService {
   constructor(
     private readonly input: {
@@ -71,16 +77,34 @@ export class SourceImportService {
     scanCycle: string,
   ): Promise<SourceProcessResult> {
     const filename = basename(candidate.relativePath);
-    const samePath = await this.input.repo.getSourceFile(
-      this.input.source.sourceId,
-      candidate.relativePath,
-    );
-    const samePathDocument = samePath?.documentId
-      ? await this.input.repo.getDocument(samePath.documentId)
-      : null;
+    let samePath: SourceFileRecord | null = null;
+    let samePathDocument: { id: string; sha256: string } | null = null;
+    try {
+      this.throwIfAborted();
+      samePath = await this.input.repo.getSourceFile(
+        this.input.source.sourceId,
+        candidate.relativePath,
+      );
+      this.throwIfAborted();
+      samePathDocument = samePath?.documentId
+        ? await this.input.repo.getDocument(samePath.documentId)
+        : null;
+      this.throwIfAborted();
+    } catch (error) {
+      this.throwIfCancellation(error);
+      return this.recordOutcome({
+        candidate,
+        scanCycle,
+        outcome: "failed",
+        sha256: samePath?.documentId ? samePath.sha256 ?? null : null,
+        documentId: samePath?.documentId ?? null,
+        error: shortErrorMessage(error),
+      });
+    }
     const livePathOwnership = this.liveOwnership(samePath, samePathDocument);
 
     if (!isAllowedUpload(filename)) {
+      this.throwIfAborted();
       return this.recordOutcome({
         candidate,
         scanCycle,
@@ -98,6 +122,7 @@ export class SourceImportService {
         this.input.signal,
       );
     } catch (error) {
+      this.throwIfCancellation(error);
       const outcome: SourceFileOutcome =
         errorCode(error) === "PAYLOAD_TOO_LARGE" ? "oversized" : "failed";
       return this.recordOutcome({
@@ -109,6 +134,7 @@ export class SourceImportService {
         error: outcome === "failed" ? shortErrorMessage(error) : undefined,
       });
     }
+    this.throwIfAborted();
 
     if (livePathOwnership && samePath?.sha256 === inspected.sha256) {
       return this.recordOutcome({
@@ -179,6 +205,7 @@ export class SourceImportService {
         renamed,
       });
     } catch (error) {
+      this.throwIfCancellation(error);
       return this.recordOutcome({
         candidate,
         scanCycle,
@@ -209,6 +236,7 @@ export class SourceImportService {
     replaceDocumentId: string;
   }): Promise<SourceProcessResult> {
     const oldBlobKeys = await this.input.repo.listDocumentBlobKeys(input.replaceDocumentId);
+    this.throwIfAborted();
     const committed = await this.input.repo.commitSourceImport({
       mode: "duplicate",
       sourceId: this.input.source.sourceId,
@@ -255,6 +283,7 @@ export class SourceImportService {
 
     let committed;
     try {
+      this.throwIfAborted();
       committed = await this.input.repo.commitSourceImport({
         mode: "import",
         sourceId: this.input.source.sourceId,
@@ -311,6 +340,7 @@ export class SourceImportService {
     resultDocumentId?: string;
     error?: string;
   }): Promise<SourceProcessResult> {
+    this.throwIfAborted();
     await this.input.repo.recordSourceFile({
       sourceId: this.input.source.sourceId,
       relativePath: input.candidate.relativePath,
@@ -347,5 +377,18 @@ export class SourceImportService {
         console.warn("Failed to remove retired source blob.", { retiredDocumentId, key, error });
       }
     }
+  }
+
+  private throwIfAborted(): void {
+    if (this.input.signal.aborted) {
+      throw this.input.signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    }
+  }
+
+  private throwIfCancellation(error: unknown): void {
+    if (this.input.signal.aborted) {
+      throw this.input.signal.reason ?? error;
+    }
+    if (isAbortError(error)) throw error;
   }
 }

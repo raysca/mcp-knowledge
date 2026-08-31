@@ -72,6 +72,8 @@ class FakeRepository implements SourceImportRepository {
   recorded: RecordInput[] = [];
   committed: CommitSourceImportInput[] = [];
   commitError: Error | undefined;
+  getDocumentError: Error | undefined;
+  getSourceFileError: Error | undefined;
   commitResult: CommitSourceImportResult = {
     outcome: "imported",
     documentId: "doc_new",
@@ -79,10 +81,12 @@ class FakeRepository implements SourceImportRepository {
   };
 
   async getSourceFile(_sourceId: string, relativePath: string): Promise<SourceFileRecord | null> {
+    if (this.getSourceFileError) throw this.getSourceFileError;
     return this.sourceFile?.relativePath === relativePath ? this.sourceFile : null;
   }
 
   async getDocument(id: string): Promise<Document | null> {
+    if (this.getDocumentError) throw this.getDocumentError;
     return this.documents.get(id) ?? null;
   }
 
@@ -141,6 +145,7 @@ class FakeSource implements SourceReader {
     signal: AbortSignal,
   ): Promise<{ bytes: Uint8Array; sizeBytes: number; sha256: string }> {
     this.reads.push({ candidate, maxBytes, signal });
+    if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
     if (this.inspectError) throw this.inspectError;
     return { bytes: this.bytes, sizeBytes: this.bytes.byteLength, sha256: this.sha256 };
   }
@@ -150,7 +155,7 @@ class FakeSource implements SourceReader {
   }
 }
 
-function setup() {
+function setup(signal = new AbortController().signal) {
   const source = new FakeSource();
   const repo = new FakeRepository();
   const blobs = new FakeBlobs();
@@ -159,7 +164,7 @@ function setup() {
     repo,
     blobs,
     maxUploadBytes: 64,
-    signal: new AbortController().signal,
+    signal,
   });
   return { source, repo, blobs, service };
 }
@@ -182,6 +187,62 @@ function ownCurrentPath(
 }
 
 describe("SourceImportService", () => {
+  test("propagates an already-aborted scan without recording an outcome", async () => {
+    const controller = new AbortController();
+    const shutdown = new Error("startup scan stopped");
+    controller.abort(shutdown);
+    const { repo, service } = setup(controller.signal);
+
+    await expect(service.process({ relativePath: "interrupted.txt" }, "cycle-1")).rejects.toBe(
+      shutdown,
+    );
+
+    expect(repo.recorded).toEqual([]);
+    expect(repo.committed).toEqual([]);
+  });
+
+  test("records a concise failure when same-path source lookup fails", async () => {
+    const { repo, service } = setup();
+    repo.getSourceFileError = new Error("source state unavailable");
+
+    await expect(service.process({ relativePath: "new.txt" }, "cycle-1")).resolves.toEqual({
+      outcome: "failed",
+      error: "source state unavailable",
+    });
+
+    expect(repo.recorded).toEqual([
+      expect.objectContaining({
+        sha256: null,
+        documentId: null,
+        lastOutcome: "failed",
+        scanCycle: "cycle-1",
+      }),
+    ]);
+    expect(repo.committed).toEqual([]);
+  });
+
+  test("records a document lookup failure without clearing the prior source ownership", async () => {
+    const { repo, service } = setup();
+    const owned = ownCurrentPath(repo);
+    repo.getDocumentError = new Error("document lookup unavailable");
+
+    await expect(service.process({ relativePath: "current.txt" }, "cycle-1")).resolves.toEqual({
+      outcome: "failed",
+      documentId: owned.id,
+      error: "document lookup unavailable",
+    });
+
+    expect(repo.recorded).toEqual([
+      expect.objectContaining({
+        sha256: "sha-old",
+        documentId: owned.id,
+        lastOutcome: "failed",
+        scanCycle: "cycle-1",
+      }),
+    ]);
+    expect(repo.committed).toEqual([]);
+  });
+
   test("records an unchanged live owned path when its inspected hash matches", async () => {
     const { source, repo, blobs, service } = setup();
     const owned = ownCurrentPath(repo, { sha256: "sha-same" });
