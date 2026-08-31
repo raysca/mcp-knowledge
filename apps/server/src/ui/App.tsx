@@ -15,7 +15,9 @@ import {
   documentIdFromPath,
   shouldNavigateInApp,
 } from "./pages/document-detail.tsx";
+import { ScanStatusPanel } from "./components/scan-status-panel.tsx";
 import { PlaygroundPage } from "./pages/playground.tsx";
+import type { StartupScanStatus } from "../startup-scan/coordinator.ts";
 
 type Page = "documents" | "collections" | "jobs" | "playground";
 
@@ -457,6 +459,8 @@ function JobsPage() {
     Array<{ id: string; documentId: string; status: string; attempt: number; error?: string | null }>
   >([]);
   const [error, setError] = useState<string | null>(null);
+  const [scanStatus, setScanStatus] = useState<StartupScanStatus | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/v1/jobs");
@@ -472,11 +476,23 @@ function JobsPage() {
     setError(null);
   }, []);
 
+  const reloadScanStatus = useCallback(async () => {
+    const res = await fetch("/api/v1/ingest/scan-status");
+    const data = (await res.json()) as StartupScanStatus & { error?: { message: string } };
+    if (!res.ok) {
+      setScanError(data.error?.message ?? "Could not load scan status.");
+      return;
+    }
+    setScanStatus(data);
+    setScanError(null);
+  }, []);
+
   useEffect(() => {
-    void reload();
-    const t = setInterval(() => void reload(), 2000);
+    const poll = () => void Promise.allSettled([reload(), reloadScanStatus()]);
+    poll();
+    const t = setInterval(poll, 2000);
     return () => clearInterval(t);
-  }, [reload]);
+  }, [reload, reloadScanStatus]);
 
   async function onRetry(id: string) {
     const res = await fetch(`/api/v1/jobs/${id}/retry`, { method: "POST" });
@@ -490,6 +506,7 @@ function JobsPage() {
 
   return (
     <section>
+      {scanStatus ? <ScanStatusPanel status={scanStatus} error={scanError} /> : null}
       <p className="mb-4 text-slate">Queued, running, and failed ingestion jobs. Retry a failed job to re-parse the same revision.</p>
       {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
       {items.length === 0 ? (

@@ -9,6 +9,7 @@ import type {
 import { AppError } from "@mcp-knowledge/core";
 import type { AppEnv } from "../config/env.ts";
 import { handleMcp } from "../mcp/handler.ts";
+import type { StartupIngestionCoordinator } from "../startup-scan/coordinator.ts";
 import { requiredScope, scopeAllows } from "./auth.ts";
 import { clampLimit, errorResponse, json, requestIdOf } from "./respond.ts";
 import {
@@ -27,6 +28,7 @@ export type AppServices = {
   search: SearchService;
   keys: ApiKeyService;
   urls: UrlIngestService;
+  startupScan: Pick<StartupIngestionCoordinator, "status">;
 };
 
 function documentJson(doc: Awaited<ReturnType<DocumentService["get"]>>) {
@@ -390,6 +392,10 @@ export async function handleRequest(
         200,
         requestId,
       );
+    }
+
+    if (url.pathname === "/api/v1/ingest/scan-status" && req.method === "GET") {
+      return json(svc.startupScan.status(), 200, requestId);
     }
 
     if (url.pathname === "/api/v1/jobs" && req.method === "GET") {

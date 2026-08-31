@@ -56,14 +56,6 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   const lexical = new LibsqlLexicalIndex(env.DATABASE_URL);
   const ingestion = new IngestionService(repo, blobs, registry, countTokens, embedder, vectors, env);
   const documents = new DocumentService(repo, blobs, env.MAX_UPLOAD_BYTES);
-  const services: AppServices = {
-    env,
-    documents,
-    collections: new CollectionService(repo),
-    search: new SearchService(embedder, vectors, lexical, repo, env),
-    keys: new ApiKeyService(repo),
-    urls: new UrlIngestService(documents, env),
-  };
   const stopWorker =
     env.ROLE === "api"
       ? () => undefined
@@ -104,6 +96,15 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
           })
       : undefined,
   });
+  const services: AppServices = {
+    env,
+    documents,
+    collections: new CollectionService(repo),
+    search: new SearchService(embedder, vectors, lexical, repo, env),
+    keys: new ApiKeyService(repo),
+    urls: new UrlIngestService(documents, env),
+    startupScan,
+  };
   return {
     services,
     startStartupScan: () => startupScan.start(),
