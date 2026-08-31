@@ -12,6 +12,7 @@ const server = Bun.serve({
   routes: {
     "/": homepage,
     "/collections": homepage,
+    "/documents/:id": homepage,
     "/jobs": homepage,
     "/playground": homepage,
   },

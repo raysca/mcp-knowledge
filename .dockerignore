@@ -1,0 +1,10 @@
+node_modules
+data
+.git
+.worktrees
+.env
+.env.*
+*.log
+.cache
+huggingface
+dist

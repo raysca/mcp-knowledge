@@ -10,6 +10,11 @@ import {
   TableHeader,
   TableRow,
 } from "./components/ui/table.tsx";
+import {
+  DocumentDetailPage,
+  documentIdFromPath,
+  shouldNavigateInApp,
+} from "./pages/document-detail.tsx";
 import { PlaygroundPage } from "./pages/playground.tsx";
 
 type Page = "documents" | "collections" | "jobs" | "playground";
@@ -104,25 +109,46 @@ export function App() {
 }
 
 function AppShell() {
-  const path = (Object.keys(PAGE_PATHS) as Page[]).find(
+  const initialPage = (Object.keys(PAGE_PATHS) as Page[]).find(
     (p) => PAGE_PATHS[p] === location.pathname,
   ) ?? "documents";
-  const [page, setPage] = useState<Page>(path);
+  const [page, setPage] = useState<Page>(initialPage);
+  const [documentId, setDocumentId] = useState<string | null>(() => documentIdFromPath(location.pathname));
+
+  useEffect(() => {
+    function syncFromLocation() {
+      const nextDocumentId = documentIdFromPath(location.pathname);
+      const nextPage = (Object.keys(PAGE_PATHS) as Page[]).find(
+        (candidate) => PAGE_PATHS[candidate] === location.pathname,
+      ) ?? "documents";
+      setDocumentId(nextDocumentId);
+      setPage(nextPage);
+    }
+    addEventListener("popstate", syncFromLocation);
+    return () => removeEventListener("popstate", syncFromLocation);
+  }, []);
 
   function go(next: Page) {
     history.pushState({}, "", PAGE_PATHS[next]);
+    setDocumentId(null);
     setPage(next);
+  }
+
+  function openDocument(id: string) {
+    history.pushState({}, "", `/documents/${encodeURIComponent(id)}`);
+    setPage("documents");
+    setDocumentId(id);
   }
 
   return (
     <div className="min-h-screen">
       <header className="border-b border-rule bg-shelf/60">
-        <div className="mx-auto flex max-w-5xl items-end justify-between gap-6 px-4 pt-8">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-end justify-between gap-6 px-4 pt-8">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-navy">Local archive</p>
             <h1 className="font-display text-4xl leading-none">Knowledge</h1>
           </div>
-          <nav className="flex gap-1" aria-label="Primary">
+          <nav className="flex w-full gap-1 overflow-x-auto sm:w-auto" aria-label="Primary">
             <Tab active={page === "documents"} onClick={() => go("documents")}>
               Documents
             </Tab>
@@ -139,8 +165,10 @@ function AppShell() {
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">
-        {page === "documents" ? (
-          <DocumentsPage />
+        {documentId ? (
+          <DocumentDetailPage documentId={documentId} onBack={() => go("documents")} />
+        ) : page === "documents" ? (
+          <DocumentsPage onOpenDocument={openDocument} />
         ) : page === "collections" ? (
           <CollectionsPage />
         ) : page === "jobs" ? (
@@ -177,7 +205,7 @@ function Tab({
   );
 }
 
-function DocumentsPage() {
+function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => void }) {
   const [items, setItems] = useState<DocumentRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -291,7 +319,17 @@ function DocumentsPage() {
             {items.map((doc) => (
               <TableRow key={doc.id}>
                 <TableCell>
-                  <div className="font-medium">{doc.originalFilename}</div>
+                  <a
+                    className="font-medium text-ink underline decoration-rule underline-offset-4 hover:text-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stamp"
+                    href={`/documents/${encodeURIComponent(doc.id)}`}
+                    onClick={(event) => {
+                      if (!shouldNavigateInApp(event)) return;
+                      event.preventDefault();
+                      onOpenDocument(doc.id);
+                    }}
+                  >
+                    {doc.originalFilename}
+                  </a>
                   <div className="font-mono text-[11px] text-slate">{doc.id}</div>
                 </TableCell>
                 <TableCell>
