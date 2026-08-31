@@ -5,6 +5,10 @@ export { IngestionService, errorCodeOf, normalizedStorageKey } from "./services/
 export { SearchService } from "./services/search-service.ts";
 export { ApiKeyService } from "./services/api-key-service.ts";
 export { UrlIngestService } from "./services/url-ingest.ts";
+export {
+  SourceImportService,
+  type SourceProcessResult,
+} from "./services/source-import-service.ts";
 export { assertSafeUrl, isBlockedIp } from "./ssrf.ts";
 export { DocumentService, originalStorageKey } from "./services/document-service.ts";
 export { extensionOf, isAllowedUpload, sniffMime } from "./mime.ts";
