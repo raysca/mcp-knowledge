@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AppError } from "../../packages/core/src/errors.ts";
 import type { Document } from "../../packages/core/src/domain/types.ts";
 import type {
@@ -8,6 +11,7 @@ import type {
 } from "../../packages/core/src/domain/source.ts";
 import type { BlobStore, KnowledgeRepository } from "../../packages/core/src/ports.ts";
 import { SourceImportService } from "../../packages/core/src/services/source-import-service.ts";
+import { createKnowledgeRepository, migrateLibsql } from "../../packages/db/src/index.ts";
 
 type SourceImportRepository = Pick<
   KnowledgeRepository,
@@ -74,6 +78,7 @@ class FakeRepository implements SourceImportRepository {
   commitError: Error | undefined;
   getDocumentError: Error | undefined;
   getSourceFileError: Error | undefined;
+  onListDocumentBlobKeys: (() => void) | undefined;
   commitResult: CommitSourceImportResult = {
     outcome: "imported",
     documentId: "doc_new",
@@ -112,6 +117,7 @@ class FakeRepository implements SourceImportRepository {
   }
 
   async listDocumentBlobKeys(documentId: string): Promise<string[]> {
+    this.onListDocumentBlobKeys?.();
     return this.documentBlobKeys.get(documentId) ?? [];
   }
 }
@@ -169,6 +175,19 @@ function setup(signal = new AbortController().signal) {
   return { source, repo, blobs, service };
 }
 
+async function withRepository(
+  run: (repo: ReturnType<typeof createKnowledgeRepository>) => Promise<void>,
+): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "mcp-source-import-service-"));
+  const url = `file:${join(dir, "app.db")}`;
+  try {
+    await migrateLibsql(url);
+    await run(createKnowledgeRepository(url));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 function ownCurrentPath(
   repo: FakeRepository,
   input: { path?: string; documentId?: string; sha256?: string } = {},
@@ -201,7 +220,7 @@ describe("SourceImportService", () => {
     expect(repo.committed).toEqual([]);
   });
 
-  test("records a concise failure when same-path source lookup fails", async () => {
+  test("does not persist an unknown outcome when same-path source lookup fails", async () => {
     const { repo, service } = setup();
     repo.getSourceFileError = new Error("source state unavailable");
 
@@ -210,15 +229,68 @@ describe("SourceImportService", () => {
       error: "source state unavailable",
     });
 
-    expect(repo.recorded).toEqual([
-      expect.objectContaining({
-        sha256: null,
-        documentId: null,
-        lastOutcome: "failed",
-        scanCycle: "cycle-1",
-      }),
-    ]);
+    expect(repo.recorded).toEqual([]);
     expect(repo.committed).toEqual([]);
+  });
+
+  test("does not clear a real owned source row after a transient source lookup failure", async () => {
+    await withRepository(async (repo) => {
+      await repo.createDocument({
+        documentId: "doc_owned",
+        revisionId: "rev_owned",
+        originalFilename: "owned.txt",
+        mimeType: "text/plain",
+        extension: "txt",
+        sizeBytes: 4,
+        sha256: "sha-owned",
+        metadata: {},
+        storageKey: "documents/doc_owned/revisions/rev_owned/original",
+      });
+      await repo.recordSourceFile({
+        sourceId: "source-a",
+        relativePath: "owned.txt",
+        sha256: "sha-owned",
+        documentId: "doc_owned",
+        lastOutcome: "imported",
+        scanCycle: "cycle-old",
+      });
+
+      const flakyRepo: SourceImportRepository = {
+        getSourceFile: async () => {
+          throw new Error("temporary source lookup failure");
+        },
+        getDocument: repo.getDocument.bind(repo),
+        findLiveOwnedSourceBySha256: repo.findLiveOwnedSourceBySha256.bind(repo),
+        getLiveDocumentBySha256: repo.getLiveDocumentBySha256.bind(repo),
+        recordSourceFile: repo.recordSourceFile.bind(repo),
+        commitSourceImport: repo.commitSourceImport.bind(repo),
+        listDocumentBlobKeys: repo.listDocumentBlobKeys.bind(repo),
+      };
+      const service = new SourceImportService({
+        source: new FakeSource(),
+        repo: flakyRepo,
+        blobs: new FakeBlobs(),
+        maxUploadBytes: 64,
+        signal: new AbortController().signal,
+      });
+
+      await expect(service.process({ relativePath: "owned.txt" }, "cycle-new")).resolves.toEqual({
+        outcome: "failed",
+        error: "temporary source lookup failure",
+      });
+
+      expect(await repo.getSourceFile("source-a", "owned.txt")).toEqual(
+        expect.objectContaining({
+          sha256: "sha-owned",
+          documentId: "doc_owned",
+          lastOutcome: "imported",
+          scanCycle: "cycle-old",
+        }),
+      );
+      expect(await repo.getDocument("doc_owned")).toEqual(
+        expect.objectContaining({ id: "doc_owned", sha256: "sha-owned" }),
+      );
+    });
   });
 
   test("records a document lookup failure without clearing the prior source ownership", async () => {
@@ -240,6 +312,43 @@ describe("SourceImportService", () => {
         scanCycle: "cycle-1",
       }),
     ]);
+    expect(repo.committed).toEqual([]);
+  });
+
+  test("records a local AbortError as a file failure while the scan signal remains active", async () => {
+    const { repo, source, service } = setup();
+    const owned = ownCurrentPath(repo);
+    source.inspectError = new DOMException("local read cancelled", "AbortError");
+
+    await expect(service.process({ relativePath: "current.txt" }, "cycle-1")).resolves.toEqual({
+      outcome: "failed",
+      documentId: owned.id,
+      error: "local read cancelled",
+    });
+
+    expect(repo.recorded).toEqual([
+      expect.objectContaining({
+        sha256: "sha-old",
+        documentId: owned.id,
+        lastOutcome: "failed",
+        scanCycle: "cycle-1",
+      }),
+    ]);
+  });
+
+  test("does not stage a blob after cancellation during retired-key lookup", async () => {
+    const controller = new AbortController();
+    const shutdown = new Error("startup scan stopped");
+    const { blobs, repo, service } = setup(controller.signal);
+    ownCurrentPath(repo);
+    repo.onListDocumentBlobKeys = () => controller.abort(shutdown);
+
+    await expect(service.process({ relativePath: "current.txt" }, "cycle-1")).rejects.toBe(
+      shutdown,
+    );
+
+    expect(blobs.puts).toEqual([]);
+    expect(repo.recorded).toEqual([]);
     expect(repo.committed).toEqual([]);
   });
 

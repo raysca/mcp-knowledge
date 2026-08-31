@@ -55,12 +55,6 @@ function shortErrorMessage(error: unknown): string {
   return "Source file could not be processed.";
 }
 
-function isAbortError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const value = error as { code?: unknown; name?: unknown };
-  return value.name === "AbortError" || value.code === "ABORT_ERR";
-}
-
 export class SourceImportService {
   constructor(
     private readonly input: {
@@ -92,6 +86,9 @@ export class SourceImportService {
       this.throwIfAborted();
     } catch (error) {
       this.throwIfCancellation(error);
+      if (!samePath) {
+        return { outcome: "failed", error: shortErrorMessage(error) };
+      }
       return this.recordOutcome({
         candidate,
         scanCycle,
@@ -274,6 +271,7 @@ export class SourceImportService {
       ? await this.input.repo.listDocumentBlobKeys(input.replaceDocumentId)
       : [];
 
+    this.throwIfAborted();
     await this.input.blobs.put(
       storageKey,
       new Blob([input.inspected.bytes as unknown as BlobPart], {
@@ -389,6 +387,5 @@ export class SourceImportService {
     if (this.input.signal.aborted) {
       throw this.input.signal.reason ?? error;
     }
-    if (isAbortError(error)) throw error;
   }
 }
