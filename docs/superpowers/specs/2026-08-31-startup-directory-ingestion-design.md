@@ -83,37 +83,27 @@ When a data directory is configured for another profile or role, scanning stays 
 
 ### Components
 
-#### `IngestionSource` port
+#### `LocalDirectorySource` adapter
 
-Define a narrow application-facing port in `packages/core`:
+`SourceImportService` calls this adapter directly — there is no `IngestionSource` port in v1. A single source type exists, so an interface with one implementation would only add indirection; extract a port when a second source (e.g. a remote drive) is actually being built.
 
 ```ts
 type SourceCandidate = {
   relativePath: string;
-  filename: string;
-};
-
-type IngestionSource = {
-  kind: string;
-  sourceId: string;
-  configurationFingerprint: string;
-  candidates(signal: AbortSignal): AsyncIterable<SourceCandidate>;
-  inspectAndRead(
-    candidate: SourceCandidate,
-    maxBytes: number,
-    signal: AbortSignal,
-  ): Promise<{
-    bytes: Uint8Array;
-    sizeBytes: number;
-    sha256: string;
-  }>;
-  pathState(relativePath: string): Promise<"present" | "missing" | "unknown">;
 };
 ```
 
-Use these contracts as the implementation boundary, adjusting only import locations or naming needed to match repository conventions. The port exposes discovery, bounded reading, stable source identity, and a conservative presence check. It does not expose credentials, provider-specific metadata, or remote cursors.
+`filename` is not a stored field; derive it with `path.basename(relativePath)` at the point of use.
 
-#### `LocalDirectorySource` adapter
+The adapter exposes:
+
+- `sourceId: string` — stable opaque identifier derived from the canonical root;
+- `configurationFingerprint: string` — detects root/depth/enumeration-policy changes;
+- `candidates(signal: AbortSignal): AsyncIterable<SourceCandidate>`;
+- `inspectAndRead(candidate, maxBytes, signal): Promise<{ bytes: Uint8Array; sizeBytes: number; sha256: string }>`;
+- `pathState(relativePath: string): Promise<"present" | "missing" | "unknown">`.
+
+It exposes discovery, bounded reading, stable source identity, and a conservative presence check. It does not expose credentials, provider-specific metadata, or remote cursors.
 
 Place the local-filesystem adapter under the server/adapters boundary. It uses `fast-glob`'s asynchronous stream API in object mode for discovery with:
 
@@ -130,7 +120,7 @@ Discovery enumerates files before applying the upload-extension allowlist so uns
 
 #### `SourceImportService`
 
-Add an application service in `packages/core` that owns source-file classification and import orchestration. It depends only on `IngestionSource`, `KnowledgeRepository`, `BlobStore`, and shared document validation helpers.
+Add an application service in `packages/core` that owns source-file classification and import orchestration. It depends only on `LocalDirectorySource`, `KnowledgeRepository`, `BlobStore`, and shared document validation helpers.
 
 The service reuses the existing extension, MIME, size, hashing, storage-key, ID, and document-creation rules rather than maintaining a second upload policy. Refactor validation/preparation shared with `DocumentService` if needed; do not call the HTTP layer or duplicate the allowlist.
 
@@ -140,23 +130,20 @@ The service is the only component allowed to infer an update or rename and reque
 
 Construct the coordinator with the application services, but do not begin scanning inside `createApp()`. Add `startStartupScan(): void` to the object returned by `createApp()` and invoke it from `apps/server/src/index.ts` only after `Bun.serve()` succeeds.
 
+The coordinator owns current-run status directly — there is no separate `ScanStatusService`. One producer (the coordinator's scan loop) and one consumer (the HTTP status route) don't need a reporter interface between them.
+
 The coordinator:
 
 - owns an `AbortController` for shutdown;
-- initializes current-run status;
+- holds current-run status in process memory, starting `disabled` or an initial non-running value, moving to `scanning`, and ending in a terminal state — there is no scan history table;
+- exposes a `status()` method returning an immutable snapshot, read directly by the HTTP adapter;
 - resumes or creates a scan cycle;
-- streams candidates sequentially;
+- streams candidates sequentially, updating its own status fields as it goes;
 - applies the per-run examination limit;
 - logs per-file failures and continues;
 - completes status without throwing into the server lifecycle.
 
 The application `stop()` path aborts an active scan as well as stopping the worker. An aborted scan retains its active cycle so a later startup can continue it.
-
-#### `ScanStatusService`
-
-Keep current-run status in process memory. It starts as `disabled` or an initial non-running value, changes to `scanning`, and ends in a terminal state. There is no scan history table.
-
-The HTTP adapter reads an immutable snapshot from this service. The source-import service updates it through a small progress callback or reporter interface; core logic must not import HTTP or React types.
 
 ### Dependency direction
 
@@ -166,7 +153,7 @@ The dependency flow remains:
 index/startup + HTTP/UI
         -> startup coordinator
         -> source import application service
-        -> IngestionSource / KnowledgeRepository / BlobStore ports
+        -> LocalDirectorySource / KnowledgeRepository / BlobStore
         -> local directory / libSQL / local blob adapters
 ```
 
