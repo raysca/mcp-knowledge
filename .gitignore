@@ -12,3 +12,4 @@ apps/server/src/ui/styles.built.css
 *.log
 .cache/
 huggingface/
+.worktrees/
