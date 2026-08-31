@@ -1,0 +1,10 @@
+code,http_status,meaning,retryable
+ERR-4001,400,Malformed request body,false
+ERR-4042,404,Document not found,false
+ERR-4090,409,Duplicate upload for the same sha256,false
+ERR-4130,413,Upload exceeds MAX_UPLOAD_BYTES,false
+ERR-4220,422,DOCUMENT_NEEDS_OCR,false
+ERR-4290,429,RATE_LIMITED,true
+ERR-5000,500,Unhandled server error,true
+ERR-5030,503,Vector index temporarily unavailable,true
+ERR-5040,504,Parser subprocess timed out,true

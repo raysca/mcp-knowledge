@@ -1,0 +1,26 @@
+On the morning of March 3rd the ingestion worker began failing every job
+within a few seconds of pickup. The on-call engineer noticed the job queue
+depth climbing steadily on the metrics dashboard and traced it back to a
+change deployed the previous night. The change had swapped the embedding
+model path without updating the mounted volume, so the worker process
+could not find the ONNX weights on disk and threw on startup of every batch.
+
+The immediate fix was a rollback of the deployment, which restored the
+previous model path and let the worker drain the backlog within about
+twenty minutes. A longer term fix followed a few days later: the startup
+sequence now verifies the embedding model files exist before accepting any
+jobs, and fails fast with a clear error instead of quietly failing every job
+one at a time.
+
+The postmortem also flagged that job failures were not surfaced anywhere
+except the logs, so the team added a queue depth alert that fires when more
+than fifty jobs sit in a failed state for longer than ten minutes. That
+alert would have caught this incident within two minutes instead of the
+forty-five it actually took someone to notice the dashboard.
+
+A smaller, related issue came up during the same investigation: retried
+jobs were not resetting their lease timestamp correctly, which let two
+worker processes occasionally pick up the same job concurrently. That race
+was rare and did not cause data corruption because the write path is
+idempotent, but it wasted worker capacity. A follow-up ticket was filed to
+add a unique constraint on the lease acquisition query.
