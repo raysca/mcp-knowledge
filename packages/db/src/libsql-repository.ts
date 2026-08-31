@@ -26,6 +26,10 @@ import {
 } from "./schema/libsql.ts";
 
 type Db = ReturnType<typeof createLibsqlDb>;
+type CommitSourceImportInput = Parameters<KnowledgeRepository["commitSourceImport"]>[0];
+type CommitSourceImportResult = Awaited<
+  ReturnType<KnowledgeRepository["commitSourceImport"]>
+>;
 
 function encodeCursor(createdAt: Date, id: string): string {
   return Buffer.from(`${createdAt.getTime()}:${id}`, "utf8").toString("base64url");
@@ -531,6 +535,22 @@ RETURNING *`,
     return keys;
   }
 
+  async listDocumentBlobKeys(documentId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({
+        storageKey: documentRevisions.storageKey,
+        normalizedStorageKey: documentRevisions.normalizedStorageKey,
+      })
+      .from(documentRevisions)
+      .where(eq(documentRevisions.documentId, documentId));
+    const keys: string[] = [];
+    for (const row of rows) {
+      keys.push(row.storageKey);
+      if (row.normalizedStorageKey) keys.push(row.normalizedStorageKey);
+    }
+    return keys;
+  }
+
   async purgeDocuments(): Promise<number> {
     const existing = await this.db.select({ id: documents.id }).from(documents);
     if (existing.length === 0) return 0;
@@ -654,6 +674,186 @@ ON CONFLICT(source_id) DO UPDATE SET
           updatedAt: now,
         },
       });
+  }
+
+  async commitSourceImport(
+    input: CommitSourceImportInput,
+  ): Promise<CommitSourceImportResult> {
+    const now = Date.now();
+    await this.client.execute("BEGIN IMMEDIATE");
+    try {
+      await this.client.execute({
+        sql: `SELECT source_id, relative_path, sha256, document_id
+FROM source_files
+WHERE source_id = ? AND relative_path = ?
+LIMIT 1`,
+        args: [input.sourceId, input.relativePath],
+      });
+
+      let replacementRelativePath: string | undefined;
+      if (input.replaceDocumentId) {
+        const ownership = await this.client.execute({
+          sql: `SELECT relative_path
+FROM source_files
+WHERE source_id = ? AND document_id = ? AND document_id IS NOT NULL
+LIMIT 1`,
+          args: [input.sourceId, input.replaceDocumentId],
+        });
+        const row = ownership.rows[0];
+        if (!row) throw new Error("SOURCE_DOCUMENT_NOT_OWNED");
+        replacementRelativePath = String(row.relative_path);
+      }
+
+      const retireReplacement = async (): Promise<void> => {
+        if (!input.replaceDocumentId) return;
+        await this.client.execute({
+          sql: `UPDATE documents
+SET status = 'deleted', deleted_at = ?, updated_at = ?
+WHERE id = ?`,
+          args: [now, now, input.replaceDocumentId],
+        });
+        if (replacementRelativePath !== input.relativePath) {
+          await this.client.execute({
+            sql: `DELETE FROM source_files
+WHERE source_id = ? AND relative_path = ? AND document_id = ?`,
+            args: [input.sourceId, replacementRelativePath!, input.replaceDocumentId],
+          });
+        }
+      };
+
+      const upsertSourceFile = async (
+        documentId: string | null,
+        lastOutcome: "imported" | "duplicate",
+      ): Promise<void> => {
+        await this.client.execute({
+          sql: `INSERT INTO source_files (
+  source_id, relative_path, sha256, document_id, last_outcome, scan_cycle,
+  created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(source_id, relative_path) DO UPDATE SET
+  sha256 = excluded.sha256,
+  document_id = excluded.document_id,
+  last_outcome = excluded.last_outcome,
+  scan_cycle = excluded.scan_cycle,
+  updated_at = excluded.updated_at`,
+          args: [
+            input.sourceId,
+            input.relativePath,
+            input.sha256,
+            documentId,
+            lastOutcome,
+            input.scanCycle,
+            now,
+            now,
+          ],
+        });
+      };
+
+      if (input.mode === "duplicate") {
+        const duplicate = await this.client.execute({
+          sql: `SELECT id
+FROM documents
+WHERE id = ? AND sha256 = ? AND deleted_at IS NULL
+LIMIT 1`,
+          args: [input.duplicateDocumentId, input.sha256],
+        });
+        if (!duplicate.rows[0]) throw new Error("DUPLICATE_DOCUMENT_NOT_LIVE");
+
+        await retireReplacement();
+        await upsertSourceFile(null, "duplicate");
+        await this.client.execute("COMMIT");
+        return {
+          outcome: "duplicate",
+          duplicateDocumentId: input.duplicateDocumentId,
+          retiredDocumentId: input.replaceDocumentId,
+        };
+      }
+
+      const liveHash = await this.client.execute({
+        sql: `SELECT id
+FROM documents
+WHERE sha256 = ? AND deleted_at IS NULL
+LIMIT 1`,
+        args: [input.prepared.sha256],
+      });
+      const liveDocumentId = liveHash.rows[0]
+        ? String(liveHash.rows[0].id)
+        : undefined;
+      if (liveDocumentId && liveDocumentId !== input.replaceDocumentId) {
+        await retireReplacement();
+        await upsertSourceFile(null, "duplicate");
+        await this.client.execute("COMMIT");
+        return {
+          outcome: "duplicate",
+          duplicateDocumentId: liveDocumentId,
+          ...(input.replaceDocumentId
+            ? { retiredDocumentId: input.replaceDocumentId }
+            : {}),
+        };
+      }
+
+      await retireReplacement();
+      await this.client.execute({
+        sql: `INSERT INTO documents (
+  id, current_revision_id, original_filename, mime_type, extension,
+  size_bytes, sha256, status, metadata, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?)`,
+        args: [
+          input.prepared.documentId,
+          input.prepared.revisionId,
+          input.prepared.originalFilename,
+          input.prepared.mimeType,
+          input.prepared.extension ?? null,
+          input.prepared.sizeBytes,
+          input.prepared.sha256,
+          JSON.stringify(input.prepared.metadata),
+          now,
+          now,
+        ],
+      });
+      await this.client.execute({
+        sql: `INSERT INTO document_revisions (
+  id, document_id, revision, storage_key, sha256, size_bytes,
+  parser_name, parser_version, chunker_name, chunker_version,
+  embedding_model, embedding_dimensions, embedding_version, chunk_count, created_at
+) VALUES (?, ?, 1, ?, ?, ?, 'none', '0', 'none', '0', 'none', 0, '0', 0, ?)`,
+        args: [
+          input.prepared.revisionId,
+          input.prepared.documentId,
+          input.prepared.storageKey,
+          input.prepared.sha256,
+          input.prepared.sizeBytes,
+          now,
+        ],
+      });
+
+      const jobId = newId("job");
+      await this.client.execute({
+        sql: `INSERT INTO ingestion_jobs (
+  id, document_id, revision_id, status, attempt, max_attempts, created_at, updated_at
+) VALUES (?, ?, ?, 'queued', 0, 3, ?, ?)`,
+        args: [
+          jobId,
+          input.prepared.documentId,
+          input.prepared.revisionId,
+          now,
+          now,
+        ],
+      });
+      await upsertSourceFile(input.prepared.documentId, "imported");
+      await this.client.execute("COMMIT");
+      return {
+        outcome: "imported",
+        documentId: input.prepared.documentId,
+        jobId,
+        ...(input.replaceDocumentId
+          ? { retiredDocumentId: input.replaceDocumentId }
+          : {}),
+      };
+    } catch (error) {
+      await this.client.execute("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
   }
 
   async completeSourceScan(input: {

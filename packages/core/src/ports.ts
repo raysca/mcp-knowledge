@@ -1,6 +1,8 @@
 import type { Collection, Document, DocumentRevision, IngestionJob, StoredChunk, ApiKey } from "./domain/types.ts";
 import type { NormalizedDocument } from "./domain/normalized.ts";
 import type {
+  CommitSourceImportInput,
+  CommitSourceImportResult,
   SourceFileOutcome,
   SourceFileRecord,
   SourceScanCycle,
@@ -100,6 +102,7 @@ export type KnowledgeRepository = {
   listApiKeys(): Promise<ApiKey[]>;
   touchApiKey(id: string): Promise<void>;
   listRevisionBlobKeys(): Promise<string[]>;
+  listDocumentBlobKeys(documentId: string): Promise<string[]>;
   purgeDocuments(): Promise<number>;
   openSourceScan(input: {
     sourceId: string;
@@ -119,6 +122,7 @@ export type KnowledgeRepository = {
     lastOutcome: SourceFileOutcome;
     scanCycle: string;
   }): Promise<void>;
+  commitSourceImport(input: CommitSourceImportInput): Promise<CommitSourceImportResult>;
   completeSourceScan(input: {
     sourceId: string;
     cycleId: string;
