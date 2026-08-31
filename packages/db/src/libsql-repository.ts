@@ -682,13 +682,27 @@ ON CONFLICT(source_id) DO UPDATE SET
     const now = Date.now();
     await this.client.execute("BEGIN IMMEDIATE");
     try {
-      await this.client.execute({
+      if (
+        input.mode === "duplicate" &&
+        input.duplicateDocumentId === input.replaceDocumentId
+      ) {
+        throw new Error("DUPLICATE_DOCUMENT_EQUALS_REPLACEMENT");
+      }
+
+      const destination = await this.client.execute({
         sql: `SELECT source_id, relative_path, sha256, document_id
 FROM source_files
 WHERE source_id = ? AND relative_path = ?
 LIMIT 1`,
         args: [input.sourceId, input.relativePath],
       });
+      const destinationDocumentId = destination.rows[0]?.document_id;
+      if (
+        destinationDocumentId != null &&
+        String(destinationDocumentId) !== input.replaceDocumentId
+      ) {
+        throw new Error("SOURCE_DESTINATION_OWNED");
+      }
 
       let replacementRelativePath: string | undefined;
       if (input.replaceDocumentId) {

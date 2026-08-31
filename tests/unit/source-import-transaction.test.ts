@@ -232,6 +232,86 @@ describe("atomic source document commit", () => {
     });
   });
 
+  test("rejects a stale import when the destination path has newer ownership", async () => {
+    await withRepository(async (repo) => {
+      await createOwnedDocument(repo, {
+        sourceId: "source-a",
+        relativePath: "old-name.md",
+        documentId: "doc_old",
+        sha256: "sha-old",
+      });
+      await createOwnedDocument(repo, {
+        sourceId: "source-a",
+        relativePath: "new-name.md",
+        documentId: "doc_current",
+        sha256: "sha-current",
+      });
+
+      await expect(
+        repo.commitSourceImport({
+          mode: "import",
+          sourceId: "source-a",
+          relativePath: "new-name.md",
+          scanCycle: "cycle-new",
+          sha256: "sha-new",
+          replaceDocumentId: "doc_old",
+          prepared: preparedDocument({
+            documentId: "doc_stale",
+            revisionId: "rev_stale",
+            sha256: "sha-new",
+            originalFilename: "new-name.md",
+          }),
+        }),
+      ).rejects.toThrow("SOURCE_DESTINATION_OWNED");
+
+      expect(await repo.getDocument("doc_old")).toEqual(
+        expect.objectContaining({ id: "doc_old", sha256: "sha-old" }),
+      );
+      expect(await repo.getDocument("doc_current")).toEqual(
+        expect.objectContaining({ id: "doc_current", sha256: "sha-current" }),
+      );
+      expect(await repo.getDocument("doc_stale")).toBeNull();
+      expect(await repo.getSourceFile("source-a", "old-name.md")).toEqual(
+        expect.objectContaining({ documentId: "doc_old", sha256: "sha-old" }),
+      );
+      expect(await repo.getSourceFile("source-a", "new-name.md")).toEqual(
+        expect.objectContaining({ documentId: "doc_current", sha256: "sha-current" }),
+      );
+      expect(await repo.listJobs()).toEqual([]);
+    });
+  });
+
+  test("rejects a duplicate that aliases the replacement document", async () => {
+    await withRepository(async (repo) => {
+      await createOwnedDocument(repo, {
+        sourceId: "source-a",
+        relativePath: "owned.md",
+        documentId: "doc_alias",
+        sha256: "sha-alias",
+      });
+
+      await expect(
+        repo.commitSourceImport({
+          mode: "duplicate",
+          sourceId: "source-a",
+          relativePath: "owned.md",
+          scanCycle: "cycle-new",
+          sha256: "sha-alias",
+          duplicateDocumentId: "doc_alias",
+          replaceDocumentId: "doc_alias",
+        }),
+      ).rejects.toThrow("DUPLICATE_DOCUMENT_EQUALS_REPLACEMENT");
+
+      expect(await repo.getDocument("doc_alias")).toEqual(
+        expect.objectContaining({ id: "doc_alias", sha256: "sha-alias" }),
+      );
+      expect(await repo.getSourceFile("source-a", "owned.md")).toEqual(
+        expect.objectContaining({ documentId: "doc_alias", sha256: "sha-alias" }),
+      );
+      expect(await repo.listJobs()).toEqual([]);
+    });
+  });
+
   test("turns an import into the same safe duplicate result when the hash became live", async () => {
     await withRepository(async (repo) => {
       await createOwnedDocument(repo, {
