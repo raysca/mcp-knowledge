@@ -73,12 +73,26 @@ function toDocument(row: typeof documents.$inferSelect): Document {
 
 export class LibSqlKnowledgeRepository implements KnowledgeRepository {
   private readonly client: Client;
+  // ponytail: single shared libSQL connection can only have one raw
+  // BEGIN IMMEDIATE...COMMIT in flight at a time; chain callers through this
+  // queue so they never interleave. A rejection is caught inline so it can't
+  // permanently poison the chain for later callers.
+  private txQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly db: Db,
     url: string,
   ) {
     this.client = createClient({ url });
+  }
+
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.txQueue.then(fn, fn);
+    this.txQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   async createCollection(input: {
@@ -392,12 +406,13 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
   }
 
   async claimJob(workerId: string, leaseMs: number): Promise<IngestionJob | null> {
-    const now = Date.now();
-    const leaseBefore = now - leaseMs;
-    await this.client.execute("BEGIN IMMEDIATE");
-    try {
-      const result = await this.client.execute({
-        sql: `UPDATE ingestion_jobs
+    return this.runExclusive(async () => {
+      const now = Date.now();
+      const leaseBefore = now - leaseMs;
+      await this.client.execute("BEGIN IMMEDIATE");
+      try {
+        const result = await this.client.execute({
+          sql: `UPDATE ingestion_jobs
 SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), attempt = attempt + 1, updated_at = ?
 WHERE id = (
   SELECT id FROM ingestion_jobs
@@ -408,16 +423,17 @@ WHERE id = (
 )
 AND status IN ('queued', 'retrying', 'running')
 RETURNING *`,
-        args: [workerId, now, now, now, leaseBefore],
-      });
-      await this.client.execute("COMMIT");
-      const row = result.rows[0];
-      if (!row) return null;
-      return jobFromRaw(row);
-    } catch (error) {
-      await this.client.execute("ROLLBACK").catch(() => undefined);
-      throw error;
-    }
+          args: [workerId, now, now, now, leaseBefore],
+        });
+        await this.client.execute("COMMIT");
+        const row = result.rows[0];
+        if (!row) return null;
+        return jobFromRaw(row);
+      } catch (error) {
+        await this.client.execute("ROLLBACK").catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   async completeJob(id: string): Promise<void> {
@@ -563,23 +579,24 @@ RETURNING *`,
     configurationFingerprint: string;
     proposedCycleId: string;
   }): Promise<SourceScanCycle> {
-    const now = Date.now();
-    await this.client.execute("BEGIN IMMEDIATE");
-    try {
-      const existing = await this.client.execute({
-        sql: `SELECT configuration_fingerprint, active_cycle
+    return this.runExclusive(async () => {
+      const now = Date.now();
+      await this.client.execute("BEGIN IMMEDIATE");
+      try {
+        const existing = await this.client.execute({
+          sql: `SELECT configuration_fingerprint, active_cycle
 FROM source_scan_state
 WHERE source_id = ?`,
-        args: [input.sourceId],
-      });
-      const row = existing.rows[0];
-      const resumed =
-        row?.active_cycle != null &&
-        String(row.configuration_fingerprint) === input.configurationFingerprint;
-      const cycleId = resumed ? String(row.active_cycle) : input.proposedCycleId;
+          args: [input.sourceId],
+        });
+        const row = existing.rows[0];
+        const resumed =
+          row?.active_cycle != null &&
+          String(row.configuration_fingerprint) === input.configurationFingerprint;
+        const cycleId = resumed ? String(row.active_cycle) : input.proposedCycleId;
 
-      await this.client.execute({
-        sql: `INSERT INTO source_scan_state (
+        await this.client.execute({
+          sql: `INSERT INTO source_scan_state (
   source_id, configuration_fingerprint, active_cycle, limit_reached, started_at, updated_at
 ) VALUES (?, ?, ?, 0, ?, ?)
 ON CONFLICT(source_id) DO UPDATE SET
@@ -603,20 +620,21 @@ ON CONFLICT(source_id) DO UPDATE SET
     ELSE excluded.started_at
   END,
   updated_at = excluded.updated_at`,
-        args: [
-          input.sourceId,
-          input.configurationFingerprint,
-          input.proposedCycleId,
-          now,
-          now,
-        ],
-      });
-      await this.client.execute("COMMIT");
-      return { cycleId, resumed };
-    } catch (error) {
-      await this.client.execute("ROLLBACK").catch(() => undefined);
-      throw error;
-    }
+          args: [
+            input.sourceId,
+            input.configurationFingerprint,
+            input.proposedCycleId,
+            now,
+            now,
+          ],
+        });
+        await this.client.execute("COMMIT");
+        return { cycleId, resumed };
+      } catch (error) {
+        await this.client.execute("ROLLBACK").catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   async getSourceFile(
@@ -679,6 +697,7 @@ ON CONFLICT(source_id) DO UPDATE SET
   async commitSourceImport(
     input: CommitSourceImportInput,
   ): Promise<CommitSourceImportResult> {
+    return this.runExclusive(async () => {
     const now = Date.now();
     await this.client.execute("BEGIN IMMEDIATE");
     try {
@@ -868,6 +887,7 @@ LIMIT 1`,
       await this.client.execute("ROLLBACK").catch(() => undefined);
       throw error;
     }
+    });
   }
 
   async completeSourceScan(input: {
@@ -875,6 +895,7 @@ LIMIT 1`,
     cycleId: string;
     limitReached: boolean;
   }): Promise<void> {
+    return this.runExclusive(async () => {
     await this.client.execute("BEGIN IMMEDIATE");
     try {
       const state = await this.client.execute({
@@ -912,6 +933,7 @@ WHERE source_id = ? AND active_cycle = ?`,
       await this.client.execute("ROLLBACK").catch(() => undefined);
       throw error;
     }
+    });
   }
 }
 

@@ -341,6 +341,23 @@ describe("StartupIngestionCoordinator", () => {
     expect(repo.completed).toEqual([]);
   });
 
+  test("redacts real paths but preserves non-path diagnostics like mime types", async () => {
+    const absoluteRoot = "/private/source-root";
+    const { coordinator } = setup({
+      source: source([], {
+        error: new Error(
+          `Unsupported mime type: application/x-foo while reading ${absoluteRoot}/bad.bin`,
+        ),
+      }),
+    });
+
+    coordinator.start();
+    const status = await waitForTerminal(coordinator);
+
+    expect(status.error).toContain("Unsupported mime type: application/x-foo");
+    expect(status.error).not.toContain(absoluteRoot);
+  });
+
   test("logs a structured start and end pair when source creation fails", async () => {
     const absoluteRoot = "/private/source-root";
     const { coordinator, calls } = setup({

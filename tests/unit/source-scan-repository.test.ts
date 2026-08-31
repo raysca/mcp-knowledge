@@ -228,4 +228,22 @@ describe("source scan repository", () => {
       );
     });
   });
+
+  test("concurrent claimJob and openSourceScan calls never interleave raw transactions", async () => {
+    await withRepository(async (repo) => {
+      // ponytail: regression for the shared-connection BEGIN IMMEDIATE race —
+      // before serializing raw transactions this threw
+      // "cannot start a transaction within a transaction" under real interleaving.
+      const calls = Array.from({ length: 20 }, (_, i) =>
+        i % 2 === 0
+          ? repo.claimJob(`worker-${i}`, 30_000)
+          : repo.openSourceScan({
+              sourceId: `source-${i}`,
+              configurationFingerprint: "fp",
+              proposedCycleId: `cycle-${i}`,
+            }),
+      );
+      await expect(Promise.all(calls)).resolves.toBeDefined();
+    });
+  });
 });

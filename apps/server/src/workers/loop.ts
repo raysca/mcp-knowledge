@@ -13,7 +13,14 @@ export function startWorkerLoop(input: {
 
   async function tick() {
     while (!stopped) {
-      const job = await input.repo.claimJob(workerId, input.leaseMs);
+      let job;
+      try {
+        job = await input.repo.claimJob(workerId, input.leaseMs);
+      } catch (error) {
+        console.error("worker loop: claimJob failed", error);
+        await Bun.sleep(250);
+        continue;
+      }
       if (!job) {
         await Bun.sleep(250);
         continue;

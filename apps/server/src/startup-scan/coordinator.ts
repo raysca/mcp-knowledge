@@ -71,7 +71,11 @@ function errorMessage(error: unknown): string {
         : "Startup scan could not continue.";
   return message
     .replace(/[A-Za-z]:\\[^\s]*/g, "[path]")
-    .replace(/\/(?:[^/\s]+(?:\/[^/\s]+)*)/g, "[path]")
+    // ponytail: only redact a slash that *starts* a path segment (not
+    // preceded by a word char or dot), so "application/x-foo" and
+    // "text/plain" survive while "/Users/..." and "/tmp/foo" still get
+    // stripped.
+    .replace(/(?<![\w.])\/[^\s:]+/g, "[path]")
     .slice(0, 240);
 }
 
