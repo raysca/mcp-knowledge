@@ -117,6 +117,7 @@ export class LocalDirectorySource {
     if (!filePath) return "unknown";
 
     try {
+      if (await this.hasSymlinkSegment(filePath)) return "unknown";
       const resolvedTarget = await realpath(filePath);
       if (!this.isSafeResolvedTarget(filePath, resolvedTarget)) return "unknown";
       const entryStats = await lstat(filePath);
@@ -135,11 +136,23 @@ export class LocalDirectorySource {
 
   private async requireSafeCandidatePath(relativePath: string): Promise<string> {
     const filePath = this.requireCandidatePath(relativePath);
+    if (await this.hasSymlinkSegment(filePath)) {
+      throw new Error("Source candidate path is unsafe.");
+    }
     const resolvedTarget = await realpath(filePath);
     if (!this.isSafeResolvedTarget(filePath, resolvedTarget)) {
       throw new Error("Source candidate path is unsafe.");
     }
     return filePath;
+  }
+
+  private async hasSymlinkSegment(filePath: string): Promise<boolean> {
+    let currentPath = this.canonicalRoot;
+    for (const segment of relative(this.canonicalRoot, filePath).split(sep)) {
+      currentPath = resolve(currentPath, segment);
+      if ((await lstat(currentPath)).isSymbolicLink()) return true;
+    }
+    return false;
   }
 
   private isSafeResolvedTarget(filePath: string, resolvedTarget: string): boolean {

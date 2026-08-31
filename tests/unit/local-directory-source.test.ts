@@ -31,6 +31,8 @@ describe("LocalDirectorySource", () => {
     await writeFile(join(outside, "outside.txt"), "outside");
     await symlink("one", join(root, "directory-link"));
     await symlink(outside, join(root, "child-link"));
+    await symlink("missing-target.txt", join(root, "broken-file-link.txt"));
+    await symlink("missing-directory", join(root, "broken-child-link"));
     await symlink("root.txt", join(root, "file-link.txt"));
   });
 
@@ -88,6 +90,14 @@ describe("LocalDirectorySource", () => {
     await expect(source.inspectAndRead(candidate, 10, new AbortController().signal)).rejects.toThrow(
       "Source candidate path is unsafe.",
     );
+  });
+
+  test("reports broken symlink paths as unknown without hiding absent files", async () => {
+    const source = await LocalDirectorySource.create({ root, maxDepth: 2 });
+
+    expect(await source.pathState("broken-file-link.txt")).toBe("unknown");
+    expect(await source.pathState("broken-child-link/missing.txt")).toBe("unknown");
+    expect(await source.pathState("missing.txt")).toBe("missing");
   });
 
   test("detects size, modification time, and inode changes between snapshots", () => {
