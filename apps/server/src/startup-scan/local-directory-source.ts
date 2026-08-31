@@ -77,7 +77,7 @@ export class LocalDirectorySource {
     signal: AbortSignal,
   ): Promise<{ bytes: Uint8Array; sizeBytes: number; sha256: string }> {
     throwIfAborted(signal);
-    const filePath = this.requireCandidatePath(candidate.relativePath);
+    const filePath = await this.requireSafeCandidatePath(candidate.relativePath);
     const entryStats = await lstat(filePath);
     if (!entryStats.isFile() || entryStats.isSymbolicLink()) {
       throw new Error("Source candidate must be a regular file.");
@@ -117,6 +117,8 @@ export class LocalDirectorySource {
     if (!filePath) return "unknown";
 
     try {
+      const resolvedTarget = await realpath(filePath);
+      if (!this.isSafeResolvedTarget(filePath, resolvedTarget)) return "unknown";
       const entryStats = await lstat(filePath);
       return entryStats.isFile() && !entryStats.isSymbolicLink() ? "present" : "unknown";
     } catch (error) {
@@ -129,6 +131,21 @@ export class LocalDirectorySource {
     const filePath = this.resolveCandidate(relativePath);
     if (!filePath) throw new Error("Source candidate path is unsafe.");
     return filePath;
+  }
+
+  private async requireSafeCandidatePath(relativePath: string): Promise<string> {
+    const filePath = this.requireCandidatePath(relativePath);
+    const resolvedTarget = await realpath(filePath);
+    if (!this.isSafeResolvedTarget(filePath, resolvedTarget)) {
+      throw new Error("Source candidate path is unsafe.");
+    }
+    return filePath;
+  }
+
+  private isSafeResolvedTarget(filePath: string, resolvedTarget: string): boolean {
+    if (resolvedTarget !== filePath) return false;
+    const fromRoot = relative(this.canonicalRoot, resolvedTarget);
+    return fromRoot !== "" && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
   }
 
   private resolveCandidate(relativePath: string): string | undefined {

@@ -15,9 +15,11 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
 
 describe("LocalDirectorySource", () => {
   let root: string;
+  let outside: string;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "mcp-local-source-"));
+    outside = await mkdtemp(join(tmpdir(), "mcp-local-source-outside-"));
     await mkdir(join(root, "one", "two"), { recursive: true });
     await mkdir(join(root, ".hidden"));
     await mkdir(join(root, "normal-directory"));
@@ -26,12 +28,15 @@ describe("LocalDirectorySource", () => {
     await writeFile(join(root, "one", "two", "two.txt"), "two");
     await writeFile(join(root, ".hidden.txt"), "hidden");
     await writeFile(join(root, ".hidden", "secret.txt"), "secret");
+    await writeFile(join(outside, "outside.txt"), "outside");
     await symlink("one", join(root, "directory-link"));
+    await symlink(outside, join(root, "child-link"));
     await symlink("root.txt", join(root, "file-link.txt"));
   });
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   });
 
   test("enumerates only ordinary visible files within the configured depth", async () => {
@@ -73,6 +78,16 @@ describe("LocalDirectorySource", () => {
       sizeBytes: 4,
       sha256: "4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2",
     });
+  });
+
+  test("rejects paths that traverse an intermediate child symlink", async () => {
+    const source = await LocalDirectorySource.create({ root, maxDepth: 2 });
+    const candidate = { relativePath: "child-link/outside.txt" };
+
+    expect(await source.pathState(candidate.relativePath)).toBe("unknown");
+    await expect(source.inspectAndRead(candidate, 10, new AbortController().signal)).rejects.toThrow(
+      "Source candidate path is unsafe.",
+    );
   });
 
   test("detects size, modification time, and inode changes between snapshots", () => {
