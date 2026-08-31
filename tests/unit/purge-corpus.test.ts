@@ -47,6 +47,14 @@ describe("purgeDocuments", () => {
       metadata: {},
       storageKey: "documents/doc_purge1/revisions/rev_purge1/original",
     });
+    await repo.recordSourceFile({
+      sourceId: "source-purge",
+      relativePath: "a.md",
+      sha256: "aa",
+      documentId: "doc_purge1",
+      lastOutcome: "imported",
+      scanCycle: "cycle-purge",
+    });
     await repo.enqueueJob({ documentId: "doc_purge1", revisionId: "rev_purge1" });
     await repo.replaceChunks("rev_purge1", [
       chunk({
@@ -72,6 +80,7 @@ describe("purgeDocuments", () => {
     expect((await repo.listDocuments({ limit: 50 })).items).toEqual([]);
     expect(await repo.listCollections()).toEqual([expect.objectContaining({ id: col.id })]);
     expect((await repo.listApiKeys()).map((k) => k.id)).toContain(key.id);
+    expect(await repo.getSourceFile("source-purge", "a.md")).toBeNull();
 
     const client = createClient({ url });
     const chunks = await client.execute("SELECT COUNT(*) AS n FROM document_chunks");

@@ -25,6 +25,11 @@ export type {
   SourceLocation,
 } from "./domain/normalized.ts";
 export type {
+  SourceFileOutcome,
+  SourceFileRecord,
+  SourceScanCycle,
+} from "./domain/source.ts";
+export type {
   BlobStore,
   EmbeddedChunk,
   Embedder,

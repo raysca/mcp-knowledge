@@ -1,5 +1,10 @@
 import type { Collection, Document, DocumentRevision, IngestionJob, StoredChunk, ApiKey } from "./domain/types.ts";
 import type { NormalizedDocument } from "./domain/normalized.ts";
+import type {
+  SourceFileOutcome,
+  SourceFileRecord,
+  SourceScanCycle,
+} from "./domain/source.ts";
 
 export type DocumentParser = {
   name: string;
@@ -96,6 +101,29 @@ export type KnowledgeRepository = {
   touchApiKey(id: string): Promise<void>;
   listRevisionBlobKeys(): Promise<string[]>;
   purgeDocuments(): Promise<number>;
+  openSourceScan(input: {
+    sourceId: string;
+    configurationFingerprint: string;
+    proposedCycleId: string;
+  }): Promise<SourceScanCycle>;
+  getSourceFile(sourceId: string, relativePath: string): Promise<SourceFileRecord | null>;
+  findLiveOwnedSourceBySha256(
+    sourceId: string,
+    sha256: string,
+  ): Promise<SourceFileRecord | null>;
+  recordSourceFile(input: {
+    sourceId: string;
+    relativePath: string;
+    sha256: string | null;
+    documentId: string | null;
+    lastOutcome: SourceFileOutcome;
+    scanCycle: string;
+  }): Promise<void>;
+  completeSourceScan(input: {
+    sourceId: string;
+    cycleId: string;
+    limitReached: boolean;
+  }): Promise<void>;
 };
 
 export type BlobStore = {

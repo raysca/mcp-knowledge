@@ -7,6 +7,9 @@ import type {
   IngestionJob,
   KnowledgeRepository,
   ListDocumentsQuery,
+  SourceFileOutcome,
+  SourceFileRecord,
+  SourceScanCycle,
   StoredChunk,
 } from "@mcp-knowledge/core";
 import { newId } from "@mcp-knowledge/core";
@@ -19,6 +22,7 @@ import {
   documentRevisions,
   documents,
   ingestionJobs,
+  sourceFiles,
 } from "./schema/libsql.ts";
 
 type Db = ReturnType<typeof createLibsqlDb>;
@@ -533,6 +537,168 @@ RETURNING *`,
     await this.db.delete(documents);
     return existing.length;
   }
+
+  async openSourceScan(input: {
+    sourceId: string;
+    configurationFingerprint: string;
+    proposedCycleId: string;
+  }): Promise<SourceScanCycle> {
+    const now = Date.now();
+    await this.client.execute("BEGIN IMMEDIATE");
+    try {
+      const existing = await this.client.execute({
+        sql: `SELECT configuration_fingerprint, active_cycle
+FROM source_scan_state
+WHERE source_id = ?`,
+        args: [input.sourceId],
+      });
+      const row = existing.rows[0];
+      const resumed =
+        row?.active_cycle != null &&
+        String(row.configuration_fingerprint) === input.configurationFingerprint;
+      const cycleId = resumed ? String(row.active_cycle) : input.proposedCycleId;
+
+      await this.client.execute({
+        sql: `INSERT INTO source_scan_state (
+  source_id, configuration_fingerprint, active_cycle, limit_reached, started_at, updated_at
+) VALUES (?, ?, ?, 0, ?, ?)
+ON CONFLICT(source_id) DO UPDATE SET
+  configuration_fingerprint = excluded.configuration_fingerprint,
+  active_cycle = CASE
+    WHEN source_scan_state.active_cycle IS NOT NULL
+      AND source_scan_state.configuration_fingerprint = excluded.configuration_fingerprint
+    THEN source_scan_state.active_cycle
+    ELSE excluded.active_cycle
+  END,
+  limit_reached = CASE
+    WHEN source_scan_state.active_cycle IS NOT NULL
+      AND source_scan_state.configuration_fingerprint = excluded.configuration_fingerprint
+    THEN source_scan_state.limit_reached
+    ELSE 0
+  END,
+  started_at = CASE
+    WHEN source_scan_state.active_cycle IS NOT NULL
+      AND source_scan_state.configuration_fingerprint = excluded.configuration_fingerprint
+    THEN source_scan_state.started_at
+    ELSE excluded.started_at
+  END,
+  updated_at = excluded.updated_at`,
+        args: [
+          input.sourceId,
+          input.configurationFingerprint,
+          input.proposedCycleId,
+          now,
+          now,
+        ],
+      });
+      await this.client.execute("COMMIT");
+      return { cycleId, resumed };
+    } catch (error) {
+      await this.client.execute("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async getSourceFile(
+    sourceId: string,
+    relativePath: string,
+  ): Promise<SourceFileRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(sourceFiles)
+      .where(
+        and(eq(sourceFiles.sourceId, sourceId), eq(sourceFiles.relativePath, relativePath)),
+      )
+      .limit(1);
+    return rows[0] ? toSourceFile(rows[0]) : null;
+  }
+
+  async findLiveOwnedSourceBySha256(
+    sourceId: string,
+    sha256: string,
+  ): Promise<SourceFileRecord | null> {
+    const rows = await this.db
+      .select({ sourceFile: sourceFiles })
+      .from(sourceFiles)
+      .innerJoin(documents, eq(sourceFiles.documentId, documents.id))
+      .where(
+        and(
+          eq(sourceFiles.sourceId, sourceId),
+          eq(sourceFiles.sha256, sha256),
+          isNull(documents.deletedAt),
+        ),
+      )
+      .limit(1);
+    return rows[0] ? toSourceFile(rows[0].sourceFile) : null;
+  }
+
+  async recordSourceFile(input: {
+    sourceId: string;
+    relativePath: string;
+    sha256: string | null;
+    documentId: string | null;
+    lastOutcome: SourceFileOutcome;
+    scanCycle: string;
+  }): Promise<void> {
+    const now = new Date();
+    await this.db
+      .insert(sourceFiles)
+      .values({ ...input, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [sourceFiles.sourceId, sourceFiles.relativePath],
+        set: {
+          sha256: input.sha256,
+          documentId: input.documentId,
+          lastOutcome: input.lastOutcome,
+          scanCycle: input.scanCycle,
+          updatedAt: now,
+        },
+      });
+  }
+
+  async completeSourceScan(input: {
+    sourceId: string;
+    cycleId: string;
+    limitReached: boolean;
+  }): Promise<void> {
+    await this.client.execute("BEGIN IMMEDIATE");
+    try {
+      const state = await this.client.execute({
+        sql: "SELECT active_cycle FROM source_scan_state WHERE source_id = ?",
+        args: [input.sourceId],
+      });
+      if (state.rows[0]?.active_cycle !== input.cycleId) {
+        await this.client.execute("COMMIT");
+        return;
+      }
+
+      const now = Date.now();
+      if (input.limitReached) {
+        await this.client.execute({
+          sql: `UPDATE source_scan_state
+SET limit_reached = 1, updated_at = ?
+WHERE source_id = ? AND active_cycle = ?`,
+          args: [now, input.sourceId, input.cycleId],
+        });
+      } else {
+        await this.client.execute({
+          sql: `DELETE FROM source_files
+WHERE source_id = ? AND document_id IS NULL AND scan_cycle <> ?`,
+          args: [input.sourceId, input.cycleId],
+        });
+        await this.client.execute({
+          sql: `UPDATE source_scan_state
+SET active_cycle = NULL, limit_reached = 0, updated_at = ?
+WHERE source_id = ? AND active_cycle = ?`,
+          args: [now, input.sourceId, input.cycleId],
+        });
+      }
+      await this.client.execute("COMMIT");
+    } catch (error) {
+      await this.client.execute("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+  }
 }
 
 export function createKnowledgeRepository(url: string): KnowledgeRepository {
@@ -558,6 +724,19 @@ function toApiKey(row: {
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt ?? undefined,
     revokedAt: row.revokedAt ?? undefined,
+  };
+}
+
+function toSourceFile(row: typeof sourceFiles.$inferSelect): SourceFileRecord {
+  return {
+    sourceId: row.sourceId,
+    relativePath: row.relativePath,
+    sha256: row.sha256 ?? undefined,
+    documentId: row.documentId ?? undefined,
+    lastOutcome: row.lastOutcome,
+    scanCycle: row.scanCycle,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

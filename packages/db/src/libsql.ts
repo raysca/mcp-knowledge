@@ -34,6 +34,15 @@ export async function migrateLibsql(url: string): Promise<void> {
     ).text();
     await client.executeMultiple(sql);
   }
+  const sourceScanState = await client.execute(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_scan_state'",
+  );
+  if (sourceScanState.rows.length === 0) {
+    const sql = await Bun.file(
+      new URL("../../../drizzle/0004_source_scans.sql", import.meta.url),
+    ).text();
+    await client.executeMultiple(sql);
+  }
   client.close();
 }
 

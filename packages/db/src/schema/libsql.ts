@@ -2,10 +2,12 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { SourceFileOutcome } from "@mcp-knowledge/core";
 
 export const collections = sqliteTable("collections", {
   id: text("id").primaryKey(),
@@ -144,6 +146,39 @@ export const apiKeys = sqliteTable("api_keys", {
   lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
 });
+
+export const sourceScanState = sqliteTable("source_scan_state", {
+  sourceId: text("source_id").primaryKey(),
+  configurationFingerprint: text("configuration_fingerprint").notNull(),
+  activeCycle: text("active_cycle"),
+  limitReached: integer("limit_reached", { mode: "boolean" }).notNull().default(false),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const sourceFiles = sqliteTable(
+  "source_files",
+  {
+    sourceId: text("source_id").notNull(),
+    relativePath: text("relative_path").notNull(),
+    sha256: text("sha256"),
+    documentId: text("document_id").references(() => documents.id, {
+      onDelete: "cascade",
+    }),
+    lastOutcome: text("last_outcome").$type<SourceFileOutcome>().notNull(),
+    scanCycle: text("scan_cycle").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.relativePath] }),
+    uniqueIndex("source_files_document_owned")
+      .on(table.documentId)
+      .where(sql`${table.documentId} is not null`),
+    index("source_files_source_sha").on(table.sourceId, table.sha256),
+    index("source_files_source_cycle").on(table.sourceId, table.scanCycle),
+  ],
+);
 
 // ponytail: webhooks/webhook_deliveries/system_settings dropped - post-v1 per CLAUDE.md,
 // no reader/writer existed. Re-add when a real integration needs push delivery.
