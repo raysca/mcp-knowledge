@@ -95,6 +95,20 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
     return result;
   }
 
+  private runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.runExclusive(async () => {
+      await this.client.execute("BEGIN IMMEDIATE");
+      try {
+        const result = await fn();
+        await this.client.execute("COMMIT");
+        return result;
+      } catch (error) {
+        await this.client.execute("ROLLBACK").catch(() => undefined);
+        throw error;
+      }
+    });
+  }
+
   async createCollection(input: {
     name: string;
     description?: string;
@@ -406,13 +420,11 @@ export class LibSqlKnowledgeRepository implements KnowledgeRepository {
   }
 
   async claimJob(workerId: string, leaseMs: number): Promise<IngestionJob | null> {
-    return this.runExclusive(async () => {
+    return this.runInTransaction(async () => {
       const now = Date.now();
       const leaseBefore = now - leaseMs;
-      await this.client.execute("BEGIN IMMEDIATE");
-      try {
-        const result = await this.client.execute({
-          sql: `UPDATE ingestion_jobs
+      const result = await this.client.execute({
+        sql: `UPDATE ingestion_jobs
 SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), attempt = attempt + 1, updated_at = ?
 WHERE id = (
   SELECT id FROM ingestion_jobs
@@ -423,16 +435,11 @@ WHERE id = (
 )
 AND status IN ('queued', 'retrying', 'running')
 RETURNING *`,
-          args: [workerId, now, now, now, leaseBefore],
-        });
-        await this.client.execute("COMMIT");
-        const row = result.rows[0];
-        if (!row) return null;
-        return jobFromRaw(row);
-      } catch (error) {
-        await this.client.execute("ROLLBACK").catch(() => undefined);
-        throw error;
-      }
+        args: [workerId, now, now, now, leaseBefore],
+      });
+      const row = result.rows[0];
+      if (!row) return null;
+      return jobFromRaw(row);
     });
   }
 
@@ -579,24 +586,22 @@ RETURNING *`,
     configurationFingerprint: string;
     proposedCycleId: string;
   }): Promise<SourceScanCycle> {
-    return this.runExclusive(async () => {
+    return this.runInTransaction(async () => {
       const now = Date.now();
-      await this.client.execute("BEGIN IMMEDIATE");
-      try {
-        const existing = await this.client.execute({
-          sql: `SELECT configuration_fingerprint, active_cycle
+      const existing = await this.client.execute({
+        sql: `SELECT configuration_fingerprint, active_cycle
 FROM source_scan_state
 WHERE source_id = ?`,
-          args: [input.sourceId],
-        });
-        const row = existing.rows[0];
-        const resumed =
-          row?.active_cycle != null &&
-          String(row.configuration_fingerprint) === input.configurationFingerprint;
-        const cycleId = resumed ? String(row.active_cycle) : input.proposedCycleId;
+        args: [input.sourceId],
+      });
+      const row = existing.rows[0];
+      const resumed =
+        row?.active_cycle != null &&
+        String(row.configuration_fingerprint) === input.configurationFingerprint;
+      const cycleId = resumed ? String(row.active_cycle) : input.proposedCycleId;
 
-        await this.client.execute({
-          sql: `INSERT INTO source_scan_state (
+      await this.client.execute({
+        sql: `INSERT INTO source_scan_state (
   source_id, configuration_fingerprint, active_cycle, limit_reached, started_at, updated_at
 ) VALUES (?, ?, ?, 0, ?, ?)
 ON CONFLICT(source_id) DO UPDATE SET
@@ -620,20 +625,15 @@ ON CONFLICT(source_id) DO UPDATE SET
     ELSE excluded.started_at
   END,
   updated_at = excluded.updated_at`,
-          args: [
-            input.sourceId,
-            input.configurationFingerprint,
-            input.proposedCycleId,
-            now,
-            now,
-          ],
-        });
-        await this.client.execute("COMMIT");
-        return { cycleId, resumed };
-      } catch (error) {
-        await this.client.execute("ROLLBACK").catch(() => undefined);
-        throw error;
-      }
+        args: [
+          input.sourceId,
+          input.configurationFingerprint,
+          input.proposedCycleId,
+          now,
+          now,
+        ],
+      });
+      return { cycleId, resumed };
     });
   }
 
@@ -697,10 +697,8 @@ ON CONFLICT(source_id) DO UPDATE SET
   async commitSourceImport(
     input: CommitSourceImportInput,
   ): Promise<CommitSourceImportResult> {
-    return this.runExclusive(async () => {
-    const now = Date.now();
-    await this.client.execute("BEGIN IMMEDIATE");
-    try {
+    return this.runInTransaction(async () => {
+      const now = Date.now();
       if (
         input.mode === "duplicate" &&
         input.duplicateDocumentId === input.replaceDocumentId
@@ -794,7 +792,6 @@ LIMIT 1`,
 
         await retireReplacement();
         await upsertSourceFile(null, "duplicate");
-        await this.client.execute("COMMIT");
         return {
           outcome: "duplicate",
           duplicateDocumentId: input.duplicateDocumentId,
@@ -815,7 +812,6 @@ LIMIT 1`,
       if (liveDocumentId && liveDocumentId !== input.replaceDocumentId) {
         await retireReplacement();
         await upsertSourceFile(null, "duplicate");
-        await this.client.execute("COMMIT");
         return {
           outcome: "duplicate",
           duplicateDocumentId: liveDocumentId,
@@ -874,7 +870,6 @@ LIMIT 1`,
         ],
       });
       await upsertSourceFile(input.prepared.documentId, "imported");
-      await this.client.execute("COMMIT");
       return {
         outcome: "imported",
         documentId: input.prepared.documentId,
@@ -883,10 +878,6 @@ LIMIT 1`,
           ? { retiredDocumentId: input.replaceDocumentId }
           : {}),
       };
-    } catch (error) {
-      await this.client.execute("ROLLBACK").catch(() => undefined);
-      throw error;
-    }
     });
   }
 
@@ -895,17 +886,12 @@ LIMIT 1`,
     cycleId: string;
     limitReached: boolean;
   }): Promise<void> {
-    return this.runExclusive(async () => {
-    await this.client.execute("BEGIN IMMEDIATE");
-    try {
+    return this.runInTransaction(async () => {
       const state = await this.client.execute({
         sql: "SELECT active_cycle FROM source_scan_state WHERE source_id = ?",
         args: [input.sourceId],
       });
-      if (state.rows[0]?.active_cycle !== input.cycleId) {
-        await this.client.execute("COMMIT");
-        return;
-      }
+      if (state.rows[0]?.active_cycle !== input.cycleId) return;
 
       const now = Date.now();
       if (input.limitReached) {
@@ -928,11 +914,6 @@ WHERE source_id = ? AND active_cycle = ?`,
           args: [now, input.sourceId, input.cycleId],
         });
       }
-      await this.client.execute("COMMIT");
-    } catch (error) {
-      await this.client.execute("ROLLBACK").catch(() => undefined);
-      throw error;
-    }
     });
   }
 }

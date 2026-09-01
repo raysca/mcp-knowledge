@@ -128,14 +128,9 @@ export class LocalDirectorySource {
     }
   }
 
-  private requireCandidatePath(relativePath: string): string {
+  private async requireSafeCandidatePath(relativePath: string): Promise<string> {
     const filePath = this.resolveCandidate(relativePath);
     if (!filePath) throw new Error("Source candidate path is unsafe.");
-    return filePath;
-  }
-
-  private async requireSafeCandidatePath(relativePath: string): Promise<string> {
-    const filePath = this.requireCandidatePath(relativePath);
     if (await this.hasSymlinkSegment(filePath)) {
       throw new Error("Source candidate path is unsafe.");
     }
