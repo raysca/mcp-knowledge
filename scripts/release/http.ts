@@ -3,6 +3,7 @@ export type ReleaseFetch = (input: string | URL | Request, init?: RequestInit) =
 export type PollOptions = {
   baseUrl?: string;
   fetch?: ReleaseFetch;
+  requestInit?: RequestInit;
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
   pollIntervalMs?: number;
@@ -22,10 +23,16 @@ const DEFAULT_DOCUMENT_TIMEOUT_MS = 120_000;
 
 class TerminalDocumentError extends Error {}
 
+function terminalFailureMessage(latestError: string | null | undefined) {
+  const code = typeof latestError === "string" ? /^([A-Z][A-Z0-9_]{1,63})(?::|$)/.exec(latestError)?.[1] : undefined;
+  return code ? `Document failed: ${code}` : "Document failed.";
+}
+
 function options(input: PollOptions, defaultTimeoutMs: number) {
   return {
     baseUrl: input.baseUrl ?? process.env.BASE_URL ?? DEFAULT_BASE_URL,
     fetch: input.fetch ?? globalThis.fetch,
+    requestInit: input.requestInit,
     sleep: input.sleep ?? Bun.sleep,
     timeoutMs: input.timeoutMs ?? defaultTimeoutMs,
     pollIntervalMs: input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
@@ -44,7 +51,7 @@ export async function waitForHealth(input: PollOptions = {}): Promise<void> {
 
   do {
     try {
-      const response = await poll.fetch(url);
+      const response = await poll.fetch(url, poll.requestInit);
       const body: unknown = await response.json();
       if (response.status === 200 && typeof body === "object" && body !== null && "ok" in body && body.ok === true) {
         return;
@@ -66,12 +73,12 @@ export async function waitForDocument(id: string, input: PollOptions = {}): Prom
 
   do {
     try {
-      const response = await poll.fetch(url);
+      const response = await poll.fetch(url, poll.requestInit);
       if (response.ok) {
         const document = (await response.json()) as ReleaseDocument;
         if (document.status === "ready") return document;
         if (document.status === "failed") {
-          throw new TerminalDocumentError(document.latestError || `Document ${id} failed`);
+          throw new TerminalDocumentError(terminalFailureMessage(document.latestError));
         }
       }
     } catch (error) {

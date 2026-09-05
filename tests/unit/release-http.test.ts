@@ -24,12 +24,15 @@ describe("release HTTP polling", () => {
 
   test("waitForDocument returns the ready document", async () => {
     let attempts = 0;
+    let authorization: string | null = null;
 
     const document = await waitForDocument("doc_ready", {
       baseUrl: "http://release.test",
       timeoutMs: 1_000,
-      fetch: async () => {
+      requestInit: { headers: { authorization: "Bearer test-api-key" } },
+      fetch: async (input, init) => {
         attempts += 1;
+        authorization = new Request(input, init).headers.get("authorization");
         return Response.json(
           attempts === 1
             ? { id: "doc_ready", status: "processing", latestError: null }
@@ -41,6 +44,7 @@ describe("release HTTP polling", () => {
 
     expect(document).toEqual({ id: "doc_ready", status: "ready", latestError: null });
     expect(attempts).toBe(2);
+    expect(authorization === "Bearer test-api-key").toBe(true);
   });
 
   test("waitForDocument exposes a terminal failure without waiting", async () => {
@@ -55,8 +59,28 @@ describe("release HTTP polling", () => {
           slept = true;
         },
       }),
-    ).rejects.toThrow("PARSER_FAILED: safe failure");
+    ).rejects.toThrow("PARSER_FAILED");
 
     expect(slept).toBe(false);
+  });
+
+  test("waitForDocument never exposes raw terminal diagnostics", async () => {
+    const rawDiagnostic = "PARSER_FAILED: /Users/private/secret.pdf contains secret token";
+
+    await expect(
+      waitForDocument("doc_failed", {
+        baseUrl: "http://release.test",
+        fetch: async () =>
+          Response.json({ id: "doc_failed", status: "failed", latestError: rawDiagnostic }),
+      }),
+    ).rejects.toThrow("PARSER_FAILED");
+
+    await expect(
+      waitForDocument("doc_failed", {
+        baseUrl: "http://release.test",
+        fetch: async () =>
+          Response.json({ id: "doc_failed", status: "failed", latestError: rawDiagnostic }),
+      }),
+    ).rejects.not.toThrow(/secret\.pdf|secret token/);
   });
 });

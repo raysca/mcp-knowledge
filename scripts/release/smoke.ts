@@ -7,6 +7,10 @@ const authorizationHeaders: HeadersInit = apiKey ? { authorization: `Bearer ${ap
 type UploadResult = { id: string; status: string; duplicate: boolean };
 type SearchHit = { documentId?: string; ranking?: { finalRank?: number } };
 
+export function smokeFailureMessage(_error: unknown) {
+  return "Smoke check failed.";
+}
+
 function endpoint(pathname: string) {
   return new URL(pathname, baseUrl).toString();
 }
@@ -52,7 +56,11 @@ async function rpc(method: string, params?: Record<string, unknown>) {
   return (await response.json()) as { result?: Record<string, unknown>; error?: unknown };
 }
 
-async function main() {
+function bytesEqual(left: Uint8Array, right: Uint8Array) {
+  return left.length === right.length && left.every((byte, index) => byte === right[index]);
+}
+
+export async function runSmoke() {
   await waitForHealth({ baseUrl });
 
   const markdown = "# Release smoke\n\nThe release-sentinel-4829 verifies local hybrid retrieval.\n";
@@ -68,7 +76,9 @@ async function main() {
     upload("release-smoke.pdf", pdf, "application/pdf"),
     upload("release-smoke.docx", docx, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
   ]);
-  const documents = await Promise.all(uploads.map(({ id }) => waitForDocument(id, { baseUrl })));
+  const documents = await Promise.all(
+    uploads.map(({ id }) => waitForDocument(id, { baseUrl, requestInit: { headers: authorizationHeaders } })),
+  );
   requireCondition(documents.every((document) => document.status === "ready"), "Uploaded documents did not become ready");
 
   const duplicate = await upload("release-smoke-copy.md", markdown, "text/markdown");
@@ -96,7 +106,9 @@ async function main() {
     timings?: { totalMs?: number };
   };
   requireCondition(
-    explained.hits?.[0]?.documentId === uploads[0]!.id && typeof explained.timings?.totalMs === "number",
+    explained.hits?.[0]?.documentId === uploads[0]!.id &&
+      typeof explained.hits?.[0]?.ranking?.finalRank === "number" &&
+      typeof explained.timings?.totalMs === "number",
     "Explain search did not return provenance and timings",
   );
 
@@ -117,9 +129,17 @@ async function main() {
   );
 
   const original = await checkedFetch(`/api/v1/documents/${encodeURIComponent(uploads[0]!.id)}/file`);
-  requireCondition((await original.arrayBuffer()).byteLength === markdown.length, "Original download was not byte-identical");
+  requireCondition(
+    bytesEqual(new Uint8Array(await original.arrayBuffer()), new TextEncoder().encode(markdown)),
+    "Original download was not byte-identical",
+  );
 
   console.log(JSON.stringify({ ok: true, readyDocuments: documents.length }));
 }
 
-await main();
+if (import.meta.main) {
+  await runSmoke().catch((error) => {
+    console.error(JSON.stringify({ ok: false, error: smokeFailureMessage(error) }));
+    process.exitCode = 1;
+  });
+}
