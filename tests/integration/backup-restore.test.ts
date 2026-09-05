@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
 import { loadEnv } from "../../apps/server/src/config/env.ts";
 
@@ -57,15 +57,19 @@ async function waitForJob(base: string, id: string, status: string, ms = 60_000)
   throw new Error(`timed out waiting for job ${id} to become ${status}`);
 }
 
-async function createFakeDocker(directory: string): Promise<{ bin: string; log: string }> {
+async function createFakeDocker(directory: string): Promise<{ bin: string; log: string; state: string }> {
   const bin = join(directory, "bin");
   const log = join(directory, "docker.log");
+  const state = join(directory, "docker-state");
   await mkdir(bin);
+  await mkdir(state);
   const docker = join(bin, "docker");
   await writeFile(
     docker,
     `#!/usr/bin/env bash
 set -euo pipefail
+state="$MOCK_DOCKER_STATE"
+mkdir -p "$state"
 {
   printf 'CALL'
   for argument in "$@"; do printf '\\t%s' "$argument"; done
@@ -75,46 +79,142 @@ set -euo pipefail
 if [[ "\${1:-}" == "info" || "\${1:-} \${2:-}" == "volume inspect" || "\${1:-} \${2:-}" == "image inspect" ]]; then
   exit 0
 fi
+if [[ "\${1:-}" == "ps" ]]; then
+  [[ -n "\${MOCK_VOLUME_CONSUMER:-}" ]] && printf '%s\\n' "$MOCK_VOLUME_CONSUMER"
+  exit 0
+fi
 if [[ "\${1:-}" == "compose" ]]; then
   active_status="\${MOCK_COMPOSE_STATUS:-}"
   [[ "\${MOCK_COMPOSE_RUNNING:-0}" == "1" ]] && active_status=running
   [[ -n "$active_status" && " $* " == *" --status $active_status "* ]] && printf 'container-id\\n'
   exit 0
 fi
-if [[ " $* " == *" tar -tzf "* ]]; then
-  [[ "\${MOCK_ARCHIVE_VALID:-1}" == "1" ]] || exit 2
+if [[ "\${1:-} \${2:-}" == "volume create" ]]; then
+  rm -rf "$state/stage"
+  mkdir -p "$state/stage"
+  printf '%s\\n' "\${MOCK_STAGE_VOLUME:-mcp-knowledge-restore-stage-test}"
+  exit 0
+fi
+if [[ "\${1:-} \${2:-}" == "volume rm" ]]; then
+  printf '%s' "\${3:-}" > "$state/removed-stage-volume"
+  [[ "\${MOCK_STAGE_REMOVE_FAIL:-0}" == "0" ]] || exit 2
+  exit 0
+fi
+
+if [[ "\${1:-}" != "run" ]]; then
+  exit 0
+fi
+
+if [[ " $* " == *" tar -C /app -czf - data "* ]]; then
+  if [[ -n "\${MOCK_PRIVATE_TEMP_PARENT:-}" ]]; then
+    temporary="$(find "$MOCK_PRIVATE_TEMP_PARENT" -mindepth 1 -maxdepth 1 -name '.mcp-knowledge-backup.*' -print -quit)"
+    if [[ -d "$temporary" ]]; then
+      temporary_file="$(find "$temporary" -mindepth 1 -maxdepth 1 -type f -print -quit)"
+      if stat -c '%a' "$temporary" >/dev/null 2>&1; then
+        directory_mode="$(stat -c '%a' "$temporary")"
+        file_mode="$(stat -c '%a' "$temporary_file")"
+      else
+        directory_mode="$(stat -f '%Lp' "$temporary")"
+        file_mode="$(stat -f '%Lp' "$temporary_file")"
+      fi
+      printf '%s %s' "$directory_mode" "$file_mode" > "$state/private-temp-modes"
+    else
+      printf 'not-private-directory' > "$state/private-temp-modes"
+    fi
+  fi
+  if [[ -n "\${MOCK_RACE_ARCHIVE:-}" ]]; then
+    printf 'concurrent destination' > "$MOCK_RACE_ARCHIVE"
+  fi
+  printf 'mock archive bytes'
+  exit 0
+fi
+
+if [[ " $* " == *"dst=/restore-stage"* && " $* " == *" -i "* ]]; then
+  cat > "$state/stage/archive.tar.gz"
+  if [[ "\${MOCK_REPLACE_ARCHIVE_AFTER_SNAPSHOT:-0}" == "1" ]]; then
+    printf 'replacement archive bytes' > "$MOCK_ARCHIVE_PATH"
+  fi
+  [[ "\${MOCK_ARCHIVE_VALID:-1}" == "1" ]] || {
+    printf 'archive is not a valid gzip tar archive\\n' >&2
+    exit 2
+  }
   members="\${MOCK_ARCHIVE_MEMBERS:-data/}"
-  if [[ " $* " != *" -P "* ]]; then
-    while IFS= read -r member || [[ -n "$member" ]]; do
-      printf '%s\\n' "\${member#/}"
-    done <<< "$members"
+  [[ "$members" != *$'\\n/data/'* ]] || {
+    printf 'archive contains an absolute member\\n' >&2
+    exit 2
+  }
+  [[ "$members" != *'/../'* ]] || {
+    printf 'archive contains parent traversal\\n' >&2
+    exit 2
+  }
+  [[ "\${MOCK_ARCHIVE_TYPES:--}" != *l* ]] || {
+    printf 'archive contains a link or special file\\n' >&2
+    exit 2
+  }
+  mkdir -p "$state/stage/extracted/data/documents/doc_1"
+  if [[ "\${MOCK_USE_REAL_ARCHIVE:-0}" == "1" ]]; then
+    rm -rf "$state/stage/extracted"
+    mkdir -p "$state/stage/extracted"
+    tar -xzf "$state/stage/archive.tar.gz" -C "$state/stage/extracted"
   else
-    printf '%s' "$members"
+    printf 'staged database' > "$state/stage/extracted/data/knowledge.db"
+    printf 'staged original' > "$state/stage/extracted/data/documents/doc_1/original"
+  fi
+  touch "$state/staged"
+  exit 0
+fi
+
+if [[ " $* " == *"dst=/app/data,readonly"* ]]; then
+  if [[ "\${MOCK_VOLUME_NONEMPTY:-0}" == "1" ]] ||
+    find "$state/target" -mindepth 1 -print -quit 2>/dev/null | grep -q .; then
+    printf 'existing-entry\\n'
   fi
   exit 0
 fi
-if [[ " $* " == *" tar -tvzf "* ]]; then
-  printf '%s' "\${MOCK_ARCHIVE_TYPES:--}"
-  exit 0
+
+if [[ " $* " == *"src=mcp-knowledge-restore-stage-test,dst=/restore-stage,readonly"* &&
+      " $* " == *"src=mcp-knowledge-data,dst=/app/data"* ]]; then
+  [[ -f "$state/staged" ]] || {
+    printf 'staging was not completed before target write\\n' >&2
+    exit 2
+  }
+  mkdir -p "$state/target"
+  args=("$@")
+  command_text=""
+  for ((index = 0; index < \${#args[@]}; index += 1)); do
+    if [[ "\${args[index]}" == "sh" && "\${args[index + 1]:-}" == "-ceu" ]]; then
+      command_text="\${args[index + 2]}"
+      break
+    fi
+  done
+  [[ -n "$command_text" ]] || exit 2
+  command_text="\${command_text//\\/restore-stage/$state/stage}"
+  command_text="\${command_text//\\/app\\/data/$state/target}"
+  export MOCK_TARGET_ROOT="$state/target"
+  injection=''
+  if [[ "\${MOCK_TARGET_COLLISION:-0}" == "1" ]]; then
+    injection+='mv() { if [[ -n "\${MOCK_INJECT_COLLISION:-1}" ]]; then printf "concurrent value" > "$MOCK_TARGET_ROOT/knowledge.db"; unset MOCK_INJECT_COLLISION; fi; command mv "$@"; }'
+    injection+=$'\\n'
+  fi
+  if [[ "\${MOCK_TARGET_EXTRA:-0}" == "1" ]]; then
+    injection+='rmdir() { command rmdir "$@"; printf "concurrent extra" > "$MOCK_TARGET_ROOT/concurrent-extra"; }'
+    injection+=$'\\n'
+  fi
+  bash -ceu "$injection$command_text"
+  exit $?
 fi
-if [[ " $* " == *" find /app/data -mindepth 1 "* ]]; then
-  [[ "\${MOCK_VOLUME_NONEMPTY:-0}" == "1" ]] && printf 'existing-entry\\n'
-  exit 0
-fi
-if [[ -n "\${MOCK_CREATE_ARCHIVE:-}" && " $* " == *" tar -C /app -czf "* ]]; then
-  printf 'mock archive' > "$MOCK_CREATE_ARCHIVE"
-fi
+
 exit 0
 `,
   );
   await chmod(docker, 0o755);
-  return { bin, log };
+  return { bin, log, state };
 }
 
 async function runScript(
   script: string,
   args: string[],
-  input: { bin: string; log: string },
+  input: { bin: string; log: string; state: string },
   extraEnv: Record<string, string> = {},
 ) {
   const process = Bun.spawn(["bash", script, ...args], {
@@ -123,6 +223,7 @@ async function runScript(
       ...Bun.env,
       PATH: `${input.bin}:${Bun.env.PATH ?? ""}`,
       MOCK_DOCKER_LOG: input.log,
+      MOCK_DOCKER_STATE: input.state,
       ...extraEnv,
     },
     stdout: "pipe",
@@ -134,6 +235,21 @@ async function runScript(
     new Response(process.stderr).text(),
   ]);
   return { exitCode, stdout, stderr };
+}
+
+async function createArchiveFixture(directory: string, contents: string): Promise<string> {
+  const fixtureRoot = join(directory, "fixture");
+  const data = join(fixtureRoot, "data");
+  const archive = join(directory, "backup.tar.gz");
+  await mkdir(join(data, "documents"), { recursive: true });
+  await writeFile(join(data, "knowledge.db"), contents);
+  const process = Bun.spawn(["tar", "-czf", archive, "-C", fixtureRoot, "data"], {
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const exitCode = await process.exited;
+  if (exitCode !== 0) throw new Error(await new Response(process.stderr).text());
+  return archive;
 }
 
 afterAll(async () => {
@@ -235,20 +351,55 @@ describe("volume backup and restore shell guards", () => {
     }
   });
 
-  test("backup mounts only the explicit named volume read-only and writes to the absolute parent", async () => {
+  test("backup streams from only the explicit named volume and publishes a private archive", async () => {
     const directory = await temporaryDirectory("mcp-backup-success-");
     const docker = await createFakeDocker(directory);
     const archive = join(directory, "backup file.tar.gz");
     const result = await runScript(backupScript, [archive], docker, {
-      MOCK_CREATE_ARCHIVE: archive,
+      MOCK_PRIVATE_TEMP_PARENT: directory,
     });
 
     expect(result.exitCode).toBe(0);
-    expect(await Bun.file(archive).exists()).toBe(true);
+    expect(await readFile(archive, "utf8")).toBe("mock archive bytes");
+    expect((await stat(archive)).mode & 0o777).toBe(0o600);
+    expect(await readFile(join(docker.state, "private-temp-modes"), "utf8")).toBe("700 600");
     const log = await readFile(docker.log, "utf8");
     expect(log).toContain("type=volume,src=mcp-knowledge-data,dst=/app/data,readonly");
-    expect(log).toContain(`type=bind,src=${await realpath(dirname(archive))},dst=/backup`);
-    expect(log).toContain("mcp-knowledge:local\ttar\t-C\t/app\t-czf\t/backup/backup file.tar.gz\tdata");
+    expect(log).not.toContain("type=bind");
+    expect(log).toContain("mcp-knowledge:local\ttar\t-C\t/app\t-czf\t-\tdata");
+  });
+
+  test("backup atomically refuses a destination created after its initial preflight", async () => {
+    const directory = await temporaryDirectory("mcp-backup-publish-race-");
+    const docker = await createFakeDocker(directory);
+    const archive = join(directory, "backup.tar.gz");
+    const result = await runScript(backupScript, [archive], docker, {
+      MOCK_RACE_ARCHIVE: archive,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("appeared while backup was running");
+    expect(await readFile(archive, "utf8")).toBe("concurrent destination");
+    const remaining = Array.from(new Bun.Glob(".mcp-knowledge-backup.*").scanSync(directory));
+    expect(remaining).toHaveLength(0);
+  });
+
+  test("backup and restore reject a direct container consuming the named volume", async () => {
+    for (const script of [backupScript, restoreScript]) {
+      const directory = await temporaryDirectory("mcp-volume-consumer-");
+      const docker = await createFakeDocker(directory);
+      const archive = join(directory, "backup.tar.gz");
+      if (script === restoreScript) await writeFile(archive, "archive fixture");
+      const result = await runScript(script, [archive], docker, {
+        MOCK_VOLUME_CONSUMER: "direct-container-id",
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("volume is in use");
+      const log = await readFile(docker.log, "utf8");
+      expect(log).toContain("CALL\tps\t-q\t--filter\tvolume=mcp-knowledge-data");
+      expect(log).not.toContain("CALL\trun");
+    }
   });
 
   test("restore rejects missing, malformed, absolute, and parent-traversing archives before volume writes", async () => {
@@ -280,7 +431,10 @@ describe("volume backup and restore shell guards", () => {
     expect(malformed.stderr).toContain("valid gzip tar archive");
 
     const log = await readFile(docker.log, "utf8");
-    expect(log).not.toContain("dst=/app/data\t");
+    expect(log).not.toContain("src=mcp-knowledge-data,dst=/app/data\t");
+    expect(await readFile(join(docker.state, "removed-stage-volume"), "utf8")).toBe(
+      "mcp-knowledge-restore-stage-test",
+    );
   });
 
   test("restore refuses a non-empty volume before archive extraction", async () => {
@@ -296,7 +450,8 @@ describe("volume backup and restore shell guards", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("volume is not empty");
     const log = await readFile(docker.log, "utf8");
-    expect(log).not.toContain("tar -xzf");
+    expect(log).not.toContain("src=mcp-knowledge-data,dst=/app/data\t");
+    expect(await Bun.file(join(docker.state, "staged")).exists()).toBe(true);
   });
 
   test("restore rejects archive links before mounting the named volume writable", async () => {
@@ -315,7 +470,7 @@ describe("volume backup and restore shell guards", () => {
     expect(log).not.toContain("type=volume,src=mcp-knowledge-data,dst=/app/data\t");
   });
 
-  test("restore validates before extracting into only the explicit named volume", async () => {
+  test("restore snapshots and validates in a private staging volume before target write", async () => {
     const directory = await temporaryDirectory("mcp-restore-success-");
     const docker = await createFakeDocker(directory);
     const archive = join(directory, "backup file.tar.gz");
@@ -325,9 +480,94 @@ describe("volume backup and restore shell guards", () => {
     });
 
     expect(result.exitCode).toBe(0);
+    expect(await readFile(join(docker.state, "target/knowledge.db"), "utf8")).toBe(
+      "staged database",
+    );
+    expect(await readFile(join(docker.state, "removed-stage-volume"), "utf8")).toBe(
+      "mcp-knowledge-restore-stage-test",
+    );
     const log = await readFile(docker.log, "utf8");
-    expect(log).toContain("type=volume,src=mcp-knowledge-data,dst=/app/data");
-    expect(log).toContain(`type=bind,src=${await realpath(directory)},dst=/backup,readonly`);
-    expect(log.indexOf("tar\t-tzf")).toBeLessThan(log.indexOf("tar -xzf"));
+    const stageWrite = log.indexOf("src=mcp-knowledge-restore-stage-test,dst=/restore-stage");
+    const targetWrite = log.indexOf("src=mcp-knowledge-data,dst=/app/data");
+    expect(stageWrite).toBeGreaterThanOrEqual(0);
+    expect(targetWrite).toBeGreaterThan(stageWrite);
+    expect(log).toContain("src=mcp-knowledge-restore-stage-test,dst=/restore-stage,readonly");
+    expect(log).not.toContain("type=bind");
+  });
+
+  test("restore never cleans up the target if Docker returns it as the staging name", async () => {
+    const directory = await temporaryDirectory("mcp-restore-stage-name-");
+    const docker = await createFakeDocker(directory);
+    const archive = join(directory, "backup.tar.gz");
+    await writeFile(archive, "archive fixture");
+    const result = await runScript(restoreScript, [archive], docker, {
+      MOCK_STAGE_VOLUME: "mcp-knowledge-data",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("target as the staging volume");
+    expect(await Bun.file(join(docker.state, "removed-stage-volume")).exists()).toBe(false);
+  });
+
+  test("restore fails closed when its exact private staging volume cannot be removed", async () => {
+    const directory = await temporaryDirectory("mcp-restore-stage-cleanup-");
+    const docker = await createFakeDocker(directory);
+    const archive = join(directory, "backup.tar.gz");
+    await writeFile(archive, "archive fixture");
+    const result = await runScript(restoreScript, [archive], docker, {
+      MOCK_STAGE_REMOVE_FAIL: "1",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not remove private staging volume");
+    expect(await readFile(join(docker.state, "removed-stage-volume"), "utf8")).toBe(
+      "mcp-knowledge-restore-stage-test",
+    );
+  });
+
+  test("restore uses the snapshotted bytes even if the host archive path is replaced", async () => {
+    const directory = await temporaryDirectory("mcp-restore-snapshot-");
+    const docker = await createFakeDocker(directory);
+    const archive = await createArchiveFixture(directory, "immutable original database");
+    const originalArchive = await readFile(archive);
+    const result = await runScript(restoreScript, [archive], docker, {
+      MOCK_USE_REAL_ARCHIVE: "1",
+      MOCK_REPLACE_ARCHIVE_AFTER_SNAPSHOT: "1",
+      MOCK_ARCHIVE_PATH: archive,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(join(docker.state, "stage/archive.tar.gz"))).toEqual(originalArchive);
+    expect(await readFile(archive, "utf8")).toBe("replacement archive bytes");
+    expect(await readFile(join(docker.state, "target/knowledge.db"), "utf8")).toBe(
+      "immutable original database",
+    );
+  });
+
+  test("restore never overwrites a concurrent collision and detects concurrent extra entries", async () => {
+    for (const scenario of ["collision", "extra"] as const) {
+      const directory = await temporaryDirectory(`mcp-restore-${scenario}-`);
+      const docker = await createFakeDocker(directory);
+      const archive = join(directory, "backup.tar.gz");
+      await writeFile(archive, "archive fixture");
+      const result = await runScript(restoreScript, [archive], docker, {
+        MOCK_ARCHIVE_MEMBERS: "data/\ndata/knowledge.db\n",
+        ...(scenario === "collision"
+          ? { MOCK_TARGET_COLLISION: "1" }
+          : { MOCK_TARGET_EXTRA: "1" }),
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      if (scenario === "collision") {
+        expect(await readFile(join(docker.state, "target/knowledge.db"), "utf8")).toBe(
+          "concurrent value",
+        );
+      } else {
+        expect(result.stderr).toContain("post-copy validation failed");
+        expect(await readFile(join(docker.state, "target/concurrent-extra"), "utf8")).toBe(
+          "concurrent extra",
+        );
+      }
+    }
   });
 });

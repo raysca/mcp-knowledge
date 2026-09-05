@@ -22,10 +22,14 @@ docker compose up -d
 ```
 
 The script checks that Docker is available, the Compose service is stopped,
-the exact volume `mcp-knowledge-data` exists, and the existing local app image
-`mcp-knowledge:local` exists. It mounts the data volume read-only and will not
-replace an existing archive. Do not use `docker compose down --volumes` as a
-backup step; that removes the data being backed up.
+no running or paused container is using the target volume, the exact volume
+`mcp-knowledge-data` exists, and the existing local app image
+`mcp-knowledge:local` exists. It mounts the data volume read-only, streams the
+archive into a private `0700` temporary directory on the host, publishes the
+final `0600` file atomically, and will not replace a destination that appears
+during the backup. The output parent is never mounted in the container. Do not
+use `docker compose down --volumes` as a backup step; that removes the data
+being backed up.
 
 ## Restore into a new empty volume
 
@@ -55,10 +59,16 @@ docker volume create mcp-knowledge-data
 docker compose up -d
 ```
 
-The restore script validates the gzip tar archive before mounting the volume
-writable. It rejects absolute paths, parent traversal, entries outside `data/`,
-links, special files, a running Compose service, and a non-empty target. It
-never deletes or overwrites existing volume contents.
+The restore script opens the host archive once and streams that snapshot into a
+uniquely named private Docker staging volume. It validates and extracts the
+same staged bytes before mounting the target writable, then mounts the staging
+volume read-only for the final copy. It rejects absolute paths, parent
+traversal, entries outside `data/`, links, special files, a running Compose
+service, any active container using the target volume, and a non-empty target.
+Final publication uses no-clobber moves and post-copy manifests, so a
+concurrent collision or extra entry fails the restore without being
+overwritten. The script removes only its exact staging volume and never deletes
+target-volume contents.
 
 ## Verify the restored service
 
