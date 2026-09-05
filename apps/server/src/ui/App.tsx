@@ -16,6 +16,7 @@ import {
   shouldNavigateInApp,
 } from "./pages/document-detail.tsx";
 import { ScanStatusPanel } from "./components/scan-status-panel.tsx";
+import { IngestionErrorDetails } from "./lib/ingestion-error.ts";
 import { PlaygroundPage } from "./pages/playground.tsx";
 import type { StartupScanStatus } from "../startup-scan/coordinator.ts";
 
@@ -338,7 +339,7 @@ function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => voi
                   <span className="inline-block border border-stamp px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-stamp">
                     {doc.status}
                   </span>
-                  {doc.latestError ? <div className="mt-1 max-w-xs text-xs text-stamp">{doc.latestError}</div> : null}
+                  {doc.latestError ? <IngestionErrorDetails value={doc.latestError} /> : null}
                 </TableCell>
                 <TableCell className="font-mono text-xs">{doc.sizeBytes} B</TableCell>
                 <TableCell className="text-right">
@@ -527,7 +528,7 @@ function JobsPage() {
                 <TableCell>
                   <div className="font-mono text-[11px]">{job.id}</div>
                   <div className="font-mono text-[11px] text-slate">{job.documentId}</div>
-                  {job.error ? <div className="mt-1 text-xs text-stamp">{job.error}</div> : null}
+                  {job.error ? <IngestionErrorDetails value={job.error} /> : null}
                 </TableCell>
                 <TableCell className="font-mono text-[11px] uppercase">{job.status}</TableCell>
                 <TableCell className="font-mono text-xs">{job.attempt}</TableCell>

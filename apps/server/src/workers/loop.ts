@@ -1,4 +1,4 @@
-import { errorCodeOf, type IngestionService } from "@mcp-knowledge/core";
+import { publicIngestionFailure, type IngestionService } from "@mcp-knowledge/core";
 import type { KnowledgeRepository } from "@mcp-knowledge/core";
 import { newId } from "@mcp-knowledge/core";
 
@@ -37,13 +37,13 @@ export function startWorkerLoop(input: {
         ]);
       } catch (error) {
         try {
-          const failed = await input.repo.failJob(job.id, error instanceof Error ? error : new Error(String(error)));
-          const code = errorCodeOf(error);
-          const message = error instanceof Error ? error.message : String(error);
+          const failure = publicIngestionFailure(error);
+          const publicError = new Error(`${failure.code}: ${failure.message}`);
+          const failed = await input.repo.failJob(job.id, publicError);
           await input.repo.setDocumentStatus(
             job.documentId,
             failed.status === "failed" ? "failed" : "processing",
-            `${code}: ${message}`.slice(0, 2000),
+            publicError.message,
           );
         } catch {
           // job vanished (purge mid-flight); keep claiming

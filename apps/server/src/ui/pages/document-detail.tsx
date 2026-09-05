@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button.tsx";
+import { IngestionErrorDetails } from "../lib/ingestion-error.ts";
 
 export function documentIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/documents\/([^/]+)$/);
@@ -322,9 +323,7 @@ export function DocumentDetailPage({
           </div>
         </div>
         {error ? <p className="mt-4 text-sm text-stamp">{error}</p> : null}
-        {document.latestError ? (
-          <p className="mt-4 border-l-2 border-stamp pl-3 text-sm text-stamp">{document.latestError}</p>
-        ) : null}
+        {document.latestError ? <IngestionErrorDetails value={document.latestError} /> : null}
       </header>
 
       <dl className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-4">

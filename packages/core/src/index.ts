@@ -1,4 +1,10 @@
 export { AppError, errorBody, type ErrorBody } from "./errors.ts";
+export {
+  PUBLIC_INGESTION_FAILURES,
+  publicIngestionFailure,
+  type IngestionFailureCode,
+  type PublicIngestionFailure,
+} from "./ingestion-failure.ts";
 export { ID_PREFIXES, newId, uuidv7, type IdPrefix } from "./ids.ts";
 export { CollectionService } from "./services/collection-service.ts";
 export { IngestionService, errorCodeOf, normalizedStorageKey } from "./services/ingestion-service.ts";
