@@ -4,13 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-This repository currently contains **only planning documents** — no source code, no `package.json`, no git history yet:
+This is an implemented Bun + TypeScript monorepo for the Docker-first `v0.1` local release. The application lives in `apps/server`; shared domain/application code and infrastructure adapters are split across `packages/core`, `db`, `parser`, `embeddings`, `retrieval`, and `storage`. The root `package.json` is authoritative for the available scripts:
 
-- `Document Knowledge MCP Service — Technical & Product Specification.md` — the authoritative spec. Read it before writing any code; it defines schemas, interfaces, API shapes, and constants that implementation must match exactly (env var names, default limits, error codes, ID prefixes, etc.).
-- `docs/superpowers/plans/2026-08-29-document-knowledge-mcp-go-live.md` — go-live implementation plan (milestones M0–M11, Gate A local / Gate B production). Execute this, not the older `.docx`. It deliberately narrows a few things the spec leaves open-ended — see "Where the plan narrows the spec" below.
-- `document-knowledge-mcp-implementation-plan.docx` — earlier draft; superseded by the markdown plan above.
+- `bun install` installs the pinned workspace dependencies.
+- `bun db:migrate` applies the libSQL migrations.
+- `bun dev` rebuilds dashboard CSS and starts the Bun server in watch mode.
+- `bun test` runs the unit and integration suite.
+- `bun run typecheck` runs the required TypeScript gate (`tsc --noEmit`).
+- `bun ui:css` rebuilds the dashboard stylesheet.
 
-There are no build/lint/test commands yet because there is no project scaffolding. When the project is bootstrapped, it will be a Bun + TypeScript monorepo (see §6/§113 of the spec) with `bun install`, `bun db:migrate`, `bun dev` as the core workflow, and `bun test` for unit/integration tests (§117).
+Docker is the supported v0.1 distribution path: build the pinned Bun image, persist `/app/data`, and expose the single `Bun.serve()` process. The current release boundary is intentionally local-only: libSQL is the database and the local filesystem is the blob store, with the vendored local embedding model and parser subprocess/embedding worker. Postgres/S3 deployment profiles are architectural targets, not supported v0.1 adapters.
 
 ## What this project is
 

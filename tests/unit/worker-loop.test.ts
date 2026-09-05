@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { IngestionJob, IngestionService, KnowledgeRepository } from "@mcp-knowledge/core";
+import type {
+  IngestionJob, IngestionService, KnowledgeRepository,
+} from "../../packages/core/src/index.ts";
 import { startWorkerLoop } from "../../apps/server/src/workers/loop.ts";
 
 function job(): IngestionJob {
@@ -41,7 +43,7 @@ describe("startWorkerLoop", () => {
       async process() {
         throw new Error("parse failed");
       },
-    } as IngestionService;
+    } as unknown as IngestionService;
 
     const stop = startWorkerLoop({
       repo,

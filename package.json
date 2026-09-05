@@ -8,6 +8,7 @@
     "dev": "bun ui:css && bun --watch apps/server/src/index.ts",
     "db:migrate": "bun packages/db/src/migrate.ts",
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "ui:css": "tailwindcss -i apps/server/src/ui/styles.css -o apps/server/src/ui/styles.built.css",
     "spike:anydoc": "bun scripts/spike-anydoc.ts",
     "spike:anydoc:spawn": "bun scripts/spike-anydoc-spawn.ts",
@@ -18,12 +19,13 @@
     "@libsql/client": "^0.15.15",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@tailwindcss/cli": "^4.1.13",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
     "bun-types": "^1.4.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "@types/react": "^19.1.12",
-    "@types/react-dom": "^19.1.9",
-    "tailwindcss": "^4.1.13"
+    "tailwindcss": "^4.1.13",
+    "typescript": "7.0.2"
   },
   "dependencies": {
     "@firecrawl/anydoc": "^0.2.4",
