@@ -99,20 +99,26 @@ loopback_port() {
   printf '%s\n' "$port"
 }
 
+run_container() {
+  local name="$1"
+  shift
+
+  if [[ -n "${MCP_API_KEY:-}" ]]; then
+    docker run -d --name "$name" -e MCP_API_KEY "$@"
+  else
+    docker run -d --name "$name" "$@"
+  fi
+}
+
 run_platform() {
   local platform="$1"
   local platform_id="${platform//\//-}"
   local port
   local base_url
-  local -a run_environment=()
 
   image_tag="mcp-knowledge-release-${platform_id}-${RUN_ID}:test"
   container_name="mcp-knowledge-release-${platform_id}-online-${RUN_ID}"
   offline_container_name="mcp-knowledge-release-${platform_id}-offline-${RUN_ID}"
-
-  if [[ -n "${MCP_API_KEY:-}" ]]; then
-    run_environment=(-e MCP_API_KEY)
-  fi
 
   ensure_emulation "$platform"
   printf 'Building %s...\n' "$platform"
@@ -123,7 +129,7 @@ run_platform() {
     "$REPOSITORY_ROOT"
 
   printf 'Running published-loopback smoke check for %s...\n' "$platform"
-  docker run -d --name "$container_name" "${run_environment[@]}" -p 127.0.0.1::3000 "$image_tag" >/dev/null
+  run_container "$container_name" -p 127.0.0.1::3000 "$image_tag" >/dev/null
   port="$(loopback_port "$container_name")"
   base_url="http://127.0.0.1:${port}"
   wait_for_health "$container_name"
@@ -132,7 +138,7 @@ run_platform() {
   container_name=""
 
   printf 'Running offline smoke check for %s...\n' "$platform"
-  docker run -d --name "$offline_container_name" "${run_environment[@]}" --network none "$image_tag" >/dev/null
+  run_container "$offline_container_name" --network none "$image_tag" >/dev/null
   wait_for_health "$offline_container_name"
   docker exec "$offline_container_name" sh -c 'BASE_URL=http://127.0.0.1:3000 bun scripts/release/smoke.ts'
   docker rm -f "$offline_container_name" >/dev/null
