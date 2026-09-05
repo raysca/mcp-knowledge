@@ -1,4 +1,4 @@
-import type { DocumentBlock } from "../domain/normalized.ts";
+import type { DocumentBlock, SourceLocation } from "../domain/normalized.ts";
 
 export const CHUNK_TARGET = 180;
 export const CHUNK_MIN = 64;
@@ -12,6 +12,7 @@ export type ChunkDraft = {
   content: string;
   embeddingText: string;
   headingPath: string[];
+  location?: Record<string, unknown>;
   tokenCount: number;
   contentHash: string;
 };
@@ -72,9 +73,28 @@ function lastWords(text: string, n: number): string {
   return wordsOf(text).slice(-n).join(" ");
 }
 
-function flatten(blocks: DocumentBlock[]): { headingPath: string[]; text: string }[] {
+type ChunkPiece = { headingPath: string[]; text: string; location?: SourceLocation };
+
+function mergedLocation(a?: SourceLocation, b?: SourceLocation): SourceLocation | undefined {
+  if (!a || !b) return undefined;
+  const aStart = a.charStart;
+  const aEnd = a.charEnd;
+  const bStart = b.charStart;
+  const bEnd = b.charEnd;
+  if (
+    !Number.isInteger(aStart) ||
+    !Number.isInteger(aEnd) ||
+    !Number.isInteger(bStart) ||
+    !Number.isInteger(bEnd)
+  ) {
+    return undefined;
+  }
+  return { charStart: Math.min(aStart!, bStart!), charEnd: Math.max(aEnd!, bEnd!) };
+}
+
+function flatten(blocks: DocumentBlock[]): ChunkPiece[] {
   const path: string[] = [];
-  const units: { headingPath: string[]; text: string }[] = [];
+  const units: ChunkPiece[] = [];
   for (const block of blocks) {
     if (block.type === "heading") {
       path.length = Math.max(0, block.level - 1);
@@ -83,7 +103,7 @@ function flatten(blocks: DocumentBlock[]): { headingPath: string[]; text: string
     }
     const text = blockText(block).trim();
     if (!text) continue;
-    units.push({ headingPath: path.filter((p) => p).slice(), text });
+    units.push({ headingPath: path.filter((p) => p).slice(), text, location: block.location });
   }
   return units;
 }
@@ -122,19 +142,19 @@ export function chunkBlocks(
   input: { title: string; revisionHash: string; countTokens: CountTokens },
 ): ChunkDraft[] {
   const { title, revisionHash, countTokens } = input;
-  const pieces: { headingPath: string[]; text: string }[] = [];
+  const pieces: ChunkPiece[] = [];
   for (const unit of flatten(blocks)) {
     let rest = unit.text;
     while (rest) {
       const { head, rest: next } = fitPrefix(rest, CHUNK_MAX, countTokens);
       if (!head) break;
-      pieces.push({ headingPath: unit.headingPath, text: head });
+      pieces.push({ headingPath: unit.headingPath, text: head, location: unit.location });
       rest = next;
     }
   }
 
-  const packed: { headingPath: string[]; text: string }[] = [];
-  let current: { headingPath: string[]; text: string } | undefined;
+  const packed: ChunkPiece[] = [];
+  let current: ChunkPiece | undefined;
   for (const piece of pieces) {
     if (!current) {
       current = { ...piece };
@@ -145,10 +165,12 @@ export function chunkBlocks(
     const n = countTokens(combined);
     if (samePath && n <= CHUNK_TARGET) {
       current.text = combined;
+      current.location = mergedLocation(current.location, piece.location);
       continue;
     }
     if (samePath && n <= CHUNK_MAX && countTokens(current.text) < CHUNK_TARGET) {
       current.text = combined;
+      current.location = mergedLocation(current.location, piece.location);
       continue;
     }
     packed.push(current);
@@ -156,6 +178,7 @@ export function chunkBlocks(
     current = {
       headingPath: piece.headingPath,
       text: overlap && samePath ? `${overlap} ${piece.text}` : piece.text,
+      location: overlap && samePath ? mergedLocation(current.location, piece.location) : piece.location,
     };
   }
   if (current) packed.push(current);
@@ -164,7 +187,7 @@ export function chunkBlocks(
   // last-chunk special case — a short section anywhere in the document (a FAQ's one-line
   // answer, a stray paragraph right before a new heading) produced an under-minimum chunk
   // that nothing ever picked back up unless it happened to land last.
-  const sized: { headingPath: string[]; text: string }[] = [];
+  const sized: ChunkPiece[] = [];
   for (const piece of packed) {
     const prevPiece = sized[sized.length - 1];
     const samePath = prevPiece && prevPiece.headingPath.join("\0") === piece.headingPath.join("\0");
@@ -174,6 +197,7 @@ export function chunkBlocks(
       const merged = `${prevPiece.text} ${piece.text}`;
       if (countTokens(merged) <= CHUNK_MAX) {
         prevPiece.text = merged;
+        prevPiece.location = mergedLocation(prevPiece.location, piece.location);
         continue;
       }
     }
@@ -191,6 +215,7 @@ export function chunkBlocks(
       content,
       embeddingText,
       headingPath: p.headingPath,
+      location: p.location,
       tokenCount: countTokens(content),
       contentHash: hasher.digest("hex"),
     };

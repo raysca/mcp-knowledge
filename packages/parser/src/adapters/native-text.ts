@@ -13,11 +13,25 @@ function stripTags(html: string): string {
 }
 
 function parseTxt(text: string): DocumentBlock[] {
-  return text
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((t) => ({ type: "paragraph" as const, text: t }));
+  const blocks: DocumentBlock[] = [];
+  let paragraphStart = 0;
+  const addParagraph = (raw: string, start: number) => {
+    const first = raw.search(/\S/);
+    if (first === -1) return;
+    const value = raw.trim();
+    const charStart = start + first;
+    blocks.push({
+      type: "paragraph",
+      text: value,
+      location: { charStart, charEnd: charStart + value.length },
+    });
+  };
+  for (const separator of text.matchAll(/\n\s*\n/g)) {
+    addParagraph(text.slice(paragraphStart, separator.index), paragraphStart);
+    paragraphStart = separator.index! + separator[0].length;
+  }
+  addParagraph(text.slice(paragraphStart), paragraphStart);
+  return blocks;
 }
 
 export function parseMarkdown(text: string): DocumentBlock[] {
@@ -52,7 +66,7 @@ function parseHtml(text: string): DocumentBlock[] {
 
 export class NativeTextParser implements DocumentParser {
   name = "native-text";
-  version = "1";
+  version = "2";
 
   supports(input: { mimeType?: string; extension?: string }): boolean {
     const ext = input.extension?.toLowerCase();
@@ -81,9 +95,9 @@ export class NativeTextParser implements DocumentParser {
     } else if (ext === "md" || ext === "markdown" || input.mimeType === "text/markdown") {
       blocks = parseMarkdown(text);
     } else if (ext === "json" || input.mimeType === "application/json") {
-      blocks = [{ type: "code", text }];
+      blocks = [{ type: "code", text, location: { charStart: 0, charEnd: text.length } }];
     } else if (ext === "xml" || input.mimeType === "application/xml" || input.mimeType === "text/xml") {
-      blocks = [{ type: "code", text }];
+      blocks = [{ type: "code", text, location: { charStart: 0, charEnd: text.length } }];
     } else {
       blocks = parseTxt(text);
     }

@@ -9,11 +9,11 @@ async function parse(filename: string, text: string, mimeType?: string) {
 }
 
 describe("native-text parsers", () => {
-  test("txt splits on blank lines into paragraphs", async () => {
+  test("txt paragraphs retain their source character ranges", async () => {
     const doc = await parse("note.txt", "hello\n\nworld", "text/plain");
     expect(doc.blocks).toEqual([
-      { type: "paragraph", text: "hello" },
-      { type: "paragraph", text: "world" },
+      { type: "paragraph", text: "hello", location: { charStart: 0, charEnd: 5 } },
+      { type: "paragraph", text: "world", location: { charStart: 7, charEnd: 12 } },
     ]);
   });
 
@@ -37,13 +37,17 @@ describe("native-text parsers", () => {
     ]);
   });
 
-  test("json is a single code block", async () => {
+  test("json code blocks retain the whole-document character range", async () => {
     const doc = await parse("data.json", '{"ok":true}', "application/json");
-    expect(doc.blocks).toEqual([{ type: "code", text: '{"ok":true}' }]);
+    expect(doc.blocks).toEqual([
+      { type: "code", text: '{"ok":true}', location: { charStart: 0, charEnd: 11 } },
+    ]);
   });
 
-  test("xml is a single code block", async () => {
+  test("xml code blocks retain the whole-document character range", async () => {
     const doc = await parse("data.xml", "<root/>", "application/xml");
-    expect(doc.blocks).toEqual([{ type: "code", text: "<root/>" }]);
+    expect(doc.blocks).toEqual([
+      { type: "code", text: "<root/>", location: { charStart: 0, charEnd: 7 } },
+    ]);
   });
 });

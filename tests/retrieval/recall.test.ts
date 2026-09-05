@@ -7,13 +7,34 @@ import { createApp } from "../../apps/server/src/app.ts";
 import { loadEnv } from "../../apps/server/src/config/env.ts";
 import queries from "./queries.json";
 import baseline from "./baseline.json";
+import evaluationRuns from "./evaluation-runs.json";
 import {
+  deriveMetricFloors,
   evaluateQueries,
   type EvaluationQuery,
   type EvaluationResult,
 } from "./evaluator.ts";
 
 const allowedFixtureExtensions = new Set([".html", ".json", ".md", ".txt", ".xml"]);
+
+type RetrievalHit = {
+  documentId: string;
+  headingPath: string[];
+  location?: { charStart?: number; charEnd?: number };
+};
+
+function hasStructuralProvenance(hit: RetrievalHit): boolean {
+  if (hit.headingPath.length > 0) return true;
+  const { charStart, charEnd } = hit.location ?? {};
+  return (
+    typeof charStart === "number" &&
+    typeof charEnd === "number" &&
+    Number.isInteger(charStart) &&
+    Number.isInteger(charEnd) &&
+    charStart >= 0 &&
+    charEnd > charStart
+  );
+}
 
 async function waitReady(base: string, id: string, ms = 60_000) {
   const start = Date.now();
@@ -81,13 +102,11 @@ describe("retrieval recall", () => {
         body: JSON.stringify({ query: query.query, mode: "hybrid", limit: 10 }),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        hits: Array<{ documentId: string; headingPath: string[]; location?: Record<string, unknown> }>;
-      };
+      const body = (await res.json()) as { hits: RetrievalHit[] };
       if (query.category !== "no-answer") {
-        for (const hit of body.hits) {
-          expect(Array.isArray(hit.headingPath) || hit.location !== undefined).toBe(true);
-        }
+        const relevantHit = body.hits.find((hit) => evaluatedQuery.relevant.includes(hit.documentId));
+        expect(relevantHit).toBeDefined();
+        expect(hasStructuralProvenance(relevantHit!)).toBe(true);
       }
       results.push({
         query: evaluatedQuery,
@@ -97,6 +116,13 @@ describe("retrieval recall", () => {
     }
     const report = evaluateQueries(results);
     console.log(JSON.stringify(report));
+    const recordedFloors = deriveMetricFloors(evaluationRuns.runs);
+    expect(evaluationRuns.floor).toEqual(recordedFloors);
+    expect({
+      recallAt5: baseline.recallAt5,
+      recallAt10: baseline.recallAt10,
+      mrr: baseline.mrr,
+    }).toEqual(recordedFloors);
     expect(report.answerable.recallAt5).toBeGreaterThanOrEqual(baseline.recallAt5);
     expect(report.answerable.recallAt10).toBeGreaterThanOrEqual(baseline.recallAt10);
     expect(report.answerable.mrr).toBeGreaterThanOrEqual(baseline.mrr);

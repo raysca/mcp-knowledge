@@ -24,6 +24,18 @@ describe("chunkBlocks", () => {
     expect(chunks[0]!.id.startsWith("chk_")).toBe(true);
   });
 
+  test("keeps a block's truthful character range on its chunk", () => {
+    const chunks = chunkBlocks([
+      { type: "paragraph", text: "source text", location: { charStart: 11, charEnd: 22 } },
+    ], {
+      title: "Doc",
+      revisionHash: "abc",
+      countTokens,
+    });
+
+    expect(chunks[0]!.location).toEqual({ charStart: 11, charEnd: 22 });
+  });
+
   test("splits when a section exceeds the 220-token max", () => {
     const blocks: DocumentBlock[] = [{ type: "paragraph", text: words(400) }];
     const chunks = chunkBlocks(blocks, {

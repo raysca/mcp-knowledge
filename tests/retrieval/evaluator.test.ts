@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  deriveMetricFloors,
   evaluateQueries,
   type EvaluationQuery,
   type EvaluationResult,
@@ -10,6 +11,14 @@ function answerable(query: string, relevant: string[]): EvaluationQuery {
 }
 
 describe("evaluateQueries", () => {
+  test("derives metric floors from the lowest runs rounded down to two decimals", () => {
+    expect(deriveMetricFloors([
+      { recallAt5: 0.999, recallAt10: 0.918, mrr: 0.339 },
+      { recallAt5: 0.981, recallAt10: 0.919, mrr: 0.331 },
+      { recallAt5: 0.992, recallAt10: 0.917, mrr: 0.335 },
+    ])).toEqual({ recallAt5: 0.98, recallAt10: 0.91, mrr: 0.33 });
+  });
+
   test("scores a rank-one relevant document with MRR one", () => {
     const result: EvaluationResult = {
       query: answerable("exact identifier", ["doc_returns"]),

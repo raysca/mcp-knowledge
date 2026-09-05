@@ -24,6 +24,8 @@ export type AnswerableMetrics = {
   mrr: number;
 };
 
+export type EvaluationFloors = Pick<AnswerableMetrics, "recallAt5" | "recallAt10" | "mrr">;
+
 export type EvaluationReport = {
   answerable: AnswerableMetrics;
   byCategory: Partial<Record<Exclude<EvaluationCategory, "no-answer">, AnswerableMetrics>>;
@@ -63,6 +65,16 @@ function metrics(results: EvaluationResult[]): AnswerableMetrics {
 function percentile(sorted: number[], p: number): number | null {
   if (sorted.length === 0) return null;
   return sorted[Math.ceil(p * sorted.length) - 1]!;
+}
+
+export function deriveMetricFloors(runs: EvaluationFloors[]): EvaluationFloors {
+  if (runs.length === 0) throw new Error("At least one evaluation run is required.");
+  const floor = (value: number) => Math.floor(value * 100) / 100;
+  return {
+    recallAt5: floor(Math.min(...runs.map((run) => run.recallAt5))),
+    recallAt10: floor(Math.min(...runs.map((run) => run.recallAt10))),
+    mrr: floor(Math.min(...runs.map((run) => run.mrr))),
+  };
 }
 
 export function evaluateQueries(results: EvaluationResult[]): EvaluationReport {
