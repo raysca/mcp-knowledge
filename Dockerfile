@@ -8,6 +8,10 @@ COPY packages packages
 RUN bun install --frozen-lockfile
 
 FROM base AS release
+ARG VCS_REF=unknown
+ARG VERSION=local
+LABEL org.opencontainers.image.revision=$VCS_REF \
+      org.opencontainers.image.version=$VERSION
 COPY --from=install /app/node_modules node_modules
 COPY . .
 RUN bun ui:css
@@ -21,5 +25,8 @@ ENV APP_PROFILE=local \
 
 VOLUME ["/app/data"]
 EXPOSE 3000
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \
+  CMD ["bun", "scripts/healthcheck.ts"]
 
 CMD ["sh", "-c", "bun packages/db/src/migrate.ts && exec bun apps/server/src/index.ts"]

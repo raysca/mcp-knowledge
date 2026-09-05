@@ -1,0 +1,12 @@
+services:
+  knowledge:
+    build: .
+    image: mcp-knowledge:local
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      DASHBOARD_PASSPHRASE: "${DASHBOARD_PASSPHRASE:-}"
+    volumes: ["mcp-knowledge-data:/app/data"]
+    restart: unless-stopped
+volumes:
+  mcp-knowledge-data:
+    name: mcp-knowledge-data

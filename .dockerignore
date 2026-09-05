@@ -2,9 +2,12 @@ node_modules
 data
 .git
 .worktrees
+worktrees
 .env
 .env.*
 *.log
 .cache
 huggingface
 dist
+backups
+benchmark-results
