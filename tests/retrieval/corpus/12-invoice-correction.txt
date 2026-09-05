@@ -1,0 +1,3 @@
+Invoice Correction Notice
+
+Invoice INV-0042 has an incorrect VAT amount. Apply credit note CN-8821 before issuing the corrected statement.

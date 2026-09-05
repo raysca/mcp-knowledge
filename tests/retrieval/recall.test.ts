@@ -7,6 +7,13 @@ import { createApp } from "../../apps/server/src/app.ts";
 import { loadEnv } from "../../apps/server/src/config/env.ts";
 import queries from "./queries.json";
 import baseline from "./baseline.json";
+import {
+  evaluateQueries,
+  type EvaluationQuery,
+  type EvaluationResult,
+} from "./evaluator.ts";
+
+const allowedFixtureExtensions = new Set([".html", ".json", ".md", ".txt", ".xml"]);
 
 async function waitReady(base: string, id: string, ms = 60_000) {
   const start = Date.now();
@@ -38,7 +45,8 @@ describe("retrieval recall", () => {
     base = `http://127.0.0.1:${server.port}`;
     const corpus = join(import.meta.dir, "corpus");
     for (const name of (await readdir(corpus)).sort()) {
-      if (!name.endsWith(".md")) continue;
+      const extension = name.slice(name.lastIndexOf("."));
+      if (!allowedFixtureExtensions.has(extension)) continue;
       const body = await Bun.file(join(corpus, name)).text();
       const form = new FormData();
       form.set("file", new File([body], name));
@@ -55,33 +63,42 @@ describe("retrieval recall", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  test("Recall@5 stays at the committed baseline", async () => {
-    let hits5 = 0;
-    let hits10 = 0;
-    let mrr = 0;
-    for (const q of queries) {
-      const expectedId = fileToDoc.get(q.file);
+  test("answerable queries meet committed floors with attributable hits", async () => {
+    const results: EvaluationResult[] = [];
+    for (const query of queries as EvaluationQuery[]) {
+      const evaluatedQuery: EvaluationQuery = {
+        ...query,
+        relevant: query.relevant.map((filename) => {
+          const documentId = fileToDoc.get(filename);
+          expect(documentId).toBeDefined();
+          return documentId!;
+        }),
+      };
+      const startedAt = performance.now();
       const res = await fetch(`${base}/api/v1/search`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ query: q.query, mode: "hybrid", limit: 10 }),
+        body: JSON.stringify({ query: query.query, mode: "hybrid", limit: 10 }),
       });
-      const body = (await res.json()) as { hits: Array<{ documentId: string }> };
-      const rank = body.hits.findIndex((h) => h.documentId === expectedId) + 1;
-      if (rank > 0) {
-        mrr += 1 / rank;
-        if (rank <= 5) hits5++;
-        if (rank <= 10) hits10++;
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        hits: Array<{ documentId: string; headingPath: string[]; location?: Record<string, unknown> }>;
+      };
+      if (query.category !== "no-answer") {
+        for (const hit of body.hits) {
+          expect(Array.isArray(hit.headingPath) || hit.location !== undefined).toBe(true);
+        }
       }
-      console.log(`recall ${q.file} rank=${rank || "miss"} query=${q.query}`);
+      results.push({
+        query: evaluatedQuery,
+        documentIds: body.hits.map((hit) => hit.documentId),
+        latencyMs: performance.now() - startedAt,
+      });
     }
-    const n = queries.length;
-    const recallAt5 = hits5 / n;
-    const recallAt10 = hits10 / n;
-    const mrrScore = mrr / n;
-    console.log(`Recall@5=${recallAt5} Recall@10=${recallAt10} MRR=${mrrScore}`);
-    expect(recallAt5).toBeGreaterThanOrEqual(baseline.recallAt5);
-    expect(recallAt10).toBeGreaterThanOrEqual(baseline.recallAt10);
-    expect(mrrScore).toBeGreaterThanOrEqual(baseline.mrr);
-  }, 120_000);
+    const report = evaluateQueries(results);
+    console.log(JSON.stringify(report));
+    expect(report.answerable.recallAt5).toBeGreaterThanOrEqual(baseline.recallAt5);
+    expect(report.answerable.recallAt10).toBeGreaterThanOrEqual(baseline.recallAt10);
+    expect(report.answerable.mrr).toBeGreaterThanOrEqual(baseline.mrr);
+  }, 180_000);
 });

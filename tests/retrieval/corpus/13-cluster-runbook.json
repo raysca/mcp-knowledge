@@ -1,0 +1,7 @@
+{
+  "title": "Cluster Runbook",
+  "service": "payments",
+  "symptom": "CrashLoopBackOff",
+  "diagnostic": "kubectl logs --previous",
+  "action": "Inspect the previous container logs before restarting the deployment."
+}

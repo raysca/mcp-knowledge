@@ -1,5 +1,6 @@
 {
   "recallAt5": 1,
   "recallAt10": 1,
-  "mrr": 1
+  "mrr": 1,
+  "evaluationRuns": 3
 }
