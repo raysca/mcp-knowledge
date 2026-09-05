@@ -27,9 +27,10 @@ no running or paused container is using the target volume, the exact volume
 `mcp-knowledge:local` exists. It mounts the data volume read-only, streams the
 archive into a private `0700` temporary directory on the host, publishes the
 final `0600` file atomically, and will not replace a destination that appears
-during the backup. The output parent is never mounted in the container. Do not
-use `docker compose down --volumes` as a backup step; that removes the data
-being backed up.
+during the backup. It also checks volume consumers immediately before and
+after the read and refuses to publish if another consumer appeared. The output
+parent is never mounted in the container. Do not use `docker compose down
+--volumes` as a backup step; that removes the data being backed up.
 
 ## Restore into a new empty volume
 
@@ -67,8 +68,10 @@ traversal, entries outside `data/`, links, special files, a running Compose
 service, any active container using the target volume, and a non-empty target.
 Final publication uses no-clobber moves and post-copy manifests, so a
 concurrent collision or extra entry fails the restore without being
-overwritten. The script removes only its exact staging volume and never deletes
-target-volume contents.
+overwritten. The complete target manifest rejects symlinks and other special
+entries. Consumer checks immediately before and after the copy make ordinary
+concurrent container use fail closed. The script removes only its exact staging
+volume and never deletes target-volume contents.
 
 ## Verify the restored service
 
@@ -98,5 +101,10 @@ curl --fail "http://127.0.0.1:3000/api/v1/documents/$DOCUMENT_ID"
 curl --fail http://127.0.0.1:3000/api/v1/jobs
 ```
 
-This v0.1 procedure is an offline snapshot. It does not claim online,
+This v0.1 procedure is an offline snapshot. Do not run any other Docker
+operation that attaches or changes `mcp-knowledge-data` during backup or
+restore. Docker volumes do not provide an exclusive attachment lock: the
+scripts detect consumers present at their operation boundaries, but cannot
+protect against a privileged actor deliberately attaching, changing, and
+detaching the volume entirely between checks. It does not claim online,
 incremental, remote-replication, or scheduled-backup support.

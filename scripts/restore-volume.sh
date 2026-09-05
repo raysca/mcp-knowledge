@@ -6,6 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 readonly VOLUME_NAME="mcp-knowledge-data"
 readonly IMAGE_NAME="mcp-knowledge:local"
+readonly OPERATION_CONTAINER_NAME="mcp-knowledge-restore-$$"
 
 staging_volume=""
 
@@ -19,11 +20,21 @@ require_docker() {
   docker info >/dev/null 2>&1 || die "Docker daemon is unavailable"
 }
 
-require_service_stopped() {
+require_no_other_volume_consumers() {
+  local owned_container_name="$1"
   local consumers
-  consumers="$(docker ps -q --filter "volume=$VOLUME_NAME")" ||
+  consumers="$(docker ps --filter "volume=$VOLUME_NAME" --format '{{.Names}}')" ||
     die "could not inspect containers using named volume: $VOLUME_NAME"
-  [[ -z "$consumers" ]] || die "named volume is in use by an active container: $VOLUME_NAME"
+
+  local consumer
+  while IFS= read -r consumer; do
+    [[ -z "$consumer" || "$consumer" == "$owned_container_name" ]] && continue
+    die "named volume is in use by an active container: $VOLUME_NAME ($consumer)"
+  done <<< "$consumers"
+}
+
+require_service_stopped() {
+  require_no_other_volume_consumers "$OPERATION_CONTAINER_NAME"
 
   local running
   running="$(docker compose --project-directory "$REPOSITORY_ROOT" ps \
@@ -167,7 +178,8 @@ main() {
   )" || die "could not inspect named volume: $VOLUME_NAME"
   [[ -z "$existing" ]] || die "named volume is not empty: $VOLUME_NAME"
 
-  docker run --rm --network none \
+  require_no_other_volume_consumers "$OPERATION_CONTAINER_NAME"
+  docker run --rm --name "$OPERATION_CONTAINER_NAME" --network none \
     --mount "type=volume,src=$staging_volume,dst=/restore-stage,readonly" \
     --mount "type=volume,src=$VOLUME_NAME,dst=/app/data" \
     "$IMAGE_NAME" sh -ceu '
@@ -186,9 +198,18 @@ main() {
 
       manifest() {
         root="$1"
+        entries="$(
+          cd "$root"
+          find . -mindepth 1 -printf "%y %p\n" | LC_ALL=C sort
+        )"
+        unsupported="$(find "$root" -mindepth 1 ! -type d ! -type f -print -quit)"
+        [ -z "$unsupported" ] || {
+          printf "unsupported entry type in restore manifest: %s\n" "$unsupported" >&2
+          return 1
+        }
         (
           cd "$root"
-          find . -mindepth 1 -type d -print
+          printf "%s\n" "$entries"
           find . -type f -exec sha256sum {} \;
         ) | LC_ALL=C sort
       }
@@ -222,6 +243,7 @@ main() {
         exit 1
       }
     ' || die "restore failed"
+  require_no_other_volume_consumers "$OPERATION_CONTAINER_NAME"
 
   printf 'Restored %s from %s\n' "$VOLUME_NAME" "$archive_path"
 }

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
@@ -81,6 +81,19 @@ if [[ "\${1:-}" == "info" || "\${1:-} \${2:-}" == "volume inspect" || "\${1:-} \
 fi
 if [[ "\${1:-}" == "ps" ]]; then
   [[ -n "\${MOCK_VOLUME_CONSUMER:-}" ]] && printf '%s\\n' "$MOCK_VOLUME_CONSUMER"
+  if [[ -f "$state/operation-name" && "\${MOCK_INCLUDE_OWNED_CONSUMER:-0}" == "1" ]]; then
+    cat "$state/operation-name"
+    printf '\\n'
+  fi
+  if [[ -f "$state/backup-read" && -n "\${MOCK_VOLUME_CONSUMER_AFTER_BACKUP:-}" ]]; then
+    printf '%s\\n' "$MOCK_VOLUME_CONSUMER_AFTER_BACKUP"
+  fi
+  if [[ -f "$state/staged" && -n "\${MOCK_VOLUME_CONSUMER_AFTER_STAGING:-}" ]]; then
+    printf '%s\\n' "$MOCK_VOLUME_CONSUMER_AFTER_STAGING"
+  fi
+  if [[ -f "$state/restore-copied" && -n "\${MOCK_VOLUME_CONSUMER_AFTER_RESTORE:-}" ]]; then
+    printf '%s\\n' "$MOCK_VOLUME_CONSUMER_AFTER_RESTORE"
+  fi
   exit 0
 fi
 if [[ "\${1:-}" == "compose" ]]; then
@@ -105,6 +118,14 @@ if [[ "\${1:-}" != "run" ]]; then
   exit 0
 fi
 
+args=("$@")
+for ((index = 0; index < \${#args[@]}; index += 1)); do
+  if [[ "\${args[index]}" == "--name" ]]; then
+    printf '%s' "\${args[index + 1]:-}" > "$state/operation-name"
+    break
+  fi
+done
+
 if [[ " $* " == *" tar -C /app -czf - data "* ]]; then
   if [[ -n "\${MOCK_PRIVATE_TEMP_PARENT:-}" ]]; then
     temporary="$(find "$MOCK_PRIVATE_TEMP_PARENT" -mindepth 1 -maxdepth 1 -name '.mcp-knowledge-backup.*' -print -quit)"
@@ -126,6 +147,7 @@ if [[ " $* " == *" tar -C /app -czf - data "* ]]; then
     printf 'concurrent destination' > "$MOCK_RACE_ARCHIVE"
   fi
   printf 'mock archive bytes'
+  touch "$state/backup-read"
   exit 0
 fi
 
@@ -200,8 +222,21 @@ if [[ " $* " == *"src=mcp-knowledge-restore-stage-test,dst=/restore-stage,readon
     injection+='rmdir() { command rmdir "$@"; printf "concurrent extra" > "$MOCK_TARGET_ROOT/concurrent-extra"; }'
     injection+=$'\\n'
   fi
-  bash -ceu "$injection$command_text"
-  exit $?
+  if [[ "\${MOCK_TARGET_SYMLINK:-0}" == "1" ]]; then
+    injection+='rmdir() { command rmdir "$@"; ln -s knowledge.db "$MOCK_TARGET_ROOT/concurrent-symlink"; }'
+    injection+=$'\\n'
+  fi
+  if [[ "\${MOCK_TARGET_FIFO:-0}" == "1" ]]; then
+    injection+='rmdir() { command rmdir "$@"; mkfifo "$MOCK_TARGET_ROOT/concurrent-fifo"; }'
+    injection+=$'\\n'
+  fi
+  if bash -ceu "$injection$command_text"; then
+    touch "$state/restore-copied"
+    exit 0
+  else
+    status="$?"
+    exit "$status"
+  fi
 fi
 
 exit 0
@@ -357,6 +392,7 @@ describe("volume backup and restore shell guards", () => {
     const archive = join(directory, "backup file.tar.gz");
     const result = await runScript(backupScript, [archive], docker, {
       MOCK_PRIVATE_TEMP_PARENT: directory,
+      MOCK_INCLUDE_OWNED_CONSUMER: "1",
     });
 
     expect(result.exitCode).toBe(0);
@@ -384,6 +420,24 @@ describe("volume backup and restore shell guards", () => {
     expect(remaining).toHaveLength(0);
   });
 
+  test("backup does not publish when another volume consumer appears during streaming", async () => {
+    const directory = await temporaryDirectory("mcp-backup-late-consumer-");
+    const docker = await createFakeDocker(directory);
+    const archive = join(directory, "backup.tar.gz");
+    const result = await runScript(backupScript, [archive], docker, {
+      MOCK_INCLUDE_OWNED_CONSUMER: "1",
+      MOCK_VOLUME_CONSUMER_AFTER_BACKUP: "late-backup-consumer",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("volume is in use");
+    expect(result.stdout).not.toContain("Backed up");
+    expect(await Bun.file(archive).exists()).toBe(false);
+    const log = await readFile(docker.log, "utf8");
+    expect(log).toMatch(/CALL\trun\t--rm\t--name\tmcp-knowledge-backup-[0-9]+/);
+    expect(log.match(/CALL\tps/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   test("backup and restore reject a direct container consuming the named volume", async () => {
     for (const script of [backupScript, restoreScript]) {
       const directory = await temporaryDirectory("mcp-volume-consumer-");
@@ -397,7 +451,9 @@ describe("volume backup and restore shell guards", () => {
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("volume is in use");
       const log = await readFile(docker.log, "utf8");
-      expect(log).toContain("CALL\tps\t-q\t--filter\tvolume=mcp-knowledge-data");
+      expect(log).toContain(
+        "CALL\tps\t--filter\tvolume=mcp-knowledge-data\t--format\t{{.Names}}",
+      );
       expect(log).not.toContain("CALL\trun");
     }
   });
@@ -477,6 +533,7 @@ describe("volume backup and restore shell guards", () => {
     await writeFile(archive, "fixture contents are interpreted by fake Docker");
     const result = await runScript(restoreScript, [archive], docker, {
       MOCK_ARCHIVE_MEMBERS: "data/\ndata/knowledge.db\ndata/documents/doc_1/original\n",
+      MOCK_INCLUDE_OWNED_CONSUMER: "1",
     });
 
     expect(result.exitCode).toBe(0);
@@ -568,6 +625,65 @@ describe("volume backup and restore shell guards", () => {
           "concurrent extra",
         );
       }
+    }
+  });
+
+  test("restore does not report success when another volume consumer appears during copy", async () => {
+    const directory = await temporaryDirectory("mcp-restore-late-consumer-");
+    const docker = await createFakeDocker(directory);
+    const archive = join(directory, "backup.tar.gz");
+    await writeFile(archive, "archive fixture");
+    const result = await runScript(restoreScript, [archive], docker, {
+      MOCK_ARCHIVE_MEMBERS: "data/\ndata/knowledge.db\n",
+      MOCK_INCLUDE_OWNED_CONSUMER: "1",
+      MOCK_VOLUME_CONSUMER_AFTER_RESTORE: "late-restore-consumer",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("volume is in use");
+    expect(result.stdout).not.toContain("Restored");
+    expect(await readFile(join(docker.state, "target/knowledge.db"), "utf8")).toBe(
+      "staged database",
+    );
+    const log = await readFile(docker.log, "utf8");
+    expect(log).toMatch(/CALL\trun\t--rm\t--name\tmcp-knowledge-restore-[0-9]+/);
+  });
+
+  test("restore does not mount the target writable when a consumer appears after staging", async () => {
+    const directory = await temporaryDirectory("mcp-restore-pre-copy-consumer-");
+    const docker = await createFakeDocker(directory);
+    const archive = join(directory, "backup.tar.gz");
+    await writeFile(archive, "archive fixture");
+    const result = await runScript(restoreScript, [archive], docker, {
+      MOCK_ARCHIVE_MEMBERS: "data/\ndata/knowledge.db\n",
+      MOCK_VOLUME_CONSUMER_AFTER_STAGING: "late-pre-copy-consumer",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("volume is in use");
+    expect(result.stdout).not.toContain("Restored");
+    const log = await readFile(docker.log, "utf8");
+    expect(log).not.toContain("src=mcp-knowledge-data,dst=/app/data\t");
+  });
+
+  test("restore final validation rejects symlinks and special entries", async () => {
+    for (const scenario of ["symlink", "fifo"] as const) {
+      const directory = await temporaryDirectory(`mcp-restore-${scenario}-`);
+      const docker = await createFakeDocker(directory);
+      const archive = join(directory, "backup.tar.gz");
+      await writeFile(archive, "archive fixture");
+      const result = await runScript(restoreScript, [archive], docker, {
+        MOCK_ARCHIVE_MEMBERS: "data/\ndata/knowledge.db\n",
+        ...(scenario === "symlink" ? { MOCK_TARGET_SYMLINK: "1" } : { MOCK_TARGET_FIFO: "1" }),
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("unsupported entry type");
+      expect(result.stdout).not.toContain("Restored");
+      const injected = await lstat(
+        join(docker.state, `target/concurrent-${scenario === "symlink" ? "symlink" : "fifo"}`),
+      );
+      expect(scenario === "symlink" ? injected.isSymbolicLink() : injected.isFIFO()).toBe(true);
     }
   });
 });

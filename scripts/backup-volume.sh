@@ -6,6 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 readonly VOLUME_NAME="mcp-knowledge-data"
 readonly IMAGE_NAME="mcp-knowledge:local"
+readonly OPERATION_CONTAINER_NAME="mcp-knowledge-backup-$$"
 
 backup_temp=""
 backup_temp_dir=""
@@ -20,11 +21,21 @@ require_docker() {
   docker info >/dev/null 2>&1 || die "Docker daemon is unavailable"
 }
 
-require_service_stopped() {
+require_no_other_volume_consumers() {
+  local owned_container_name="$1"
   local consumers
-  consumers="$(docker ps -q --filter "volume=$VOLUME_NAME")" ||
+  consumers="$(docker ps --filter "volume=$VOLUME_NAME" --format '{{.Names}}')" ||
     die "could not inspect containers using named volume: $VOLUME_NAME"
-  [[ -z "$consumers" ]] || die "named volume is in use by an active container: $VOLUME_NAME"
+
+  local consumer
+  while IFS= read -r consumer; do
+    [[ -z "$consumer" || "$consumer" == "$owned_container_name" ]] && continue
+    die "named volume is in use by an active container: $VOLUME_NAME ($consumer)"
+  done <<< "$consumers"
+}
+
+require_service_stopped() {
+  require_no_other_volume_consumers "$OPERATION_CONTAINER_NAME"
 
   local running
   running="$(docker compose --project-directory "$REPOSITORY_ROOT" ps \
@@ -84,9 +95,11 @@ main() {
   set +o noclobber
   chmod 0600 "$backup_temp" || die "could not secure private temporary archive"
 
-  docker run --rm --network none \
+  require_no_other_volume_consumers "$OPERATION_CONTAINER_NAME"
+  docker run --rm --name "$OPERATION_CONTAINER_NAME" --network none \
     --mount "type=volume,src=$VOLUME_NAME,dst=/app/data,readonly" \
     "$IMAGE_NAME" tar -C /app -czf - data >&3 || die "backup failed"
+  require_no_other_volume_consumers "$OPERATION_CONTAINER_NAME"
   exec 3>&-
 
   [[ -s "$backup_temp" ]] || die "backup command did not create a non-empty archive"
