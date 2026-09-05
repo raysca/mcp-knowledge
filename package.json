@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "release:smoke": "bun scripts/release/smoke.ts",
     "release:test-platforms": "bash scripts/release/test-platforms.sh",
+    "scale": "bun scripts/scale/run.ts",
     "ui:css": "tailwindcss -i apps/server/src/ui/styles.css -o apps/server/src/ui/styles.built.css",
     "spike:anydoc": "bun scripts/spike-anydoc.ts",
     "spike:anydoc:spawn": "bun scripts/spike-anydoc-spawn.ts",

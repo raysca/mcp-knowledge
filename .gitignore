@@ -13,3 +13,4 @@ apps/server/src/ui/styles.built.css
 .cache/
 huggingface/
 .worktrees/
+tmp/scale/
