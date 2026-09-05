@@ -39,14 +39,14 @@ const INGESTION_ERRORS: Record<string, IngestionError> = {
   },
   DOCUMENT_MALFORMED: {
     code: "DOCUMENT_MALFORMED",
-    message: "This file could not be read.",
+    message: "This document could not be parsed.",
     action: "Re-export the file from its source application, then re-upload it.",
   },
 };
 
 const UNKNOWN: IngestionError = {
   code: "DOCUMENT_MALFORMED",
-  message: "This file could not be read.",
+  message: "This document could not be parsed.",
   action: "Check Jobs and troubleshooting, then re-export the file before trying again.",
 };
 

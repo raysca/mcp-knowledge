@@ -1,4 +1,4 @@
-import { publicIngestionFailure, type IngestionService } from "@mcp-knowledge/core";
+import { AppError, publicIngestionFailure, type IngestionService } from "@mcp-knowledge/core";
 import type { KnowledgeRepository } from "@mcp-knowledge/core";
 import { newId } from "@mcp-knowledge/core";
 
@@ -32,7 +32,7 @@ export function startWorkerLoop(input: {
             finished = true;
           }),
           Bun.sleep(input.ingestionTimeoutMs).then(() => {
-            if (!finished) throw new Error("INGESTION_TIMEOUT");
+            if (!finished) throw new AppError("INGESTION_TIMEOUT", "ingestion timed out");
           }),
         ]);
       } catch (error) {

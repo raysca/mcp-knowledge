@@ -3,6 +3,7 @@ import type {
   AppError, IngestionJob, IngestionService, KnowledgeRepository,
 } from "../../packages/core/src/index.ts";
 import { startWorkerLoop } from "../../apps/server/src/workers/loop.ts";
+import { parseIngestionError } from "../../apps/server/src/ui/lib/ingestion-error.ts";
 
 function job(): IngestionJob {
   const now = new Date();
@@ -50,10 +51,51 @@ describe("startWorkerLoop", () => {
     const stop = startWorkerLoop({ repo, ingestion, leaseMs: 60_000, ingestionTimeoutMs: 60_000 });
     try {
       await Promise.race([persisted, Bun.sleep(500).then(() => { throw new Error("failure was not persisted"); })]);
-      expect(persistedJobError).toBe("DOCUMENT_MALFORMED: This file could not be read.");
+      expect(persistedJobError).toBe("DOCUMENT_MALFORMED: This document could not be parsed.");
       expect(persistedDocumentError).toBe(persistedJobError);
       expect(persistedJobError).not.toContain("/Users/private/secret.pdf");
       expect(persistedDocumentError).not.toContain("super-secret-token");
+    } finally {
+      stop();
+    }
+  });
+
+  test("persists the public timeout code and retry-once action from the real timeout branch", async () => {
+    let persistedJobError = "";
+    let persistedDocumentError = "";
+    let resolvePersisted!: () => void;
+    const persisted = new Promise<void>((resolve) => { resolvePersisted = resolve; });
+    let claims = 0;
+    const repo = {
+      async claimJob() {
+        claims += 1;
+        return claims === 1 ? job() : null;
+      },
+      async failJob(_id: string, error: Error) {
+        persistedJobError = error.message;
+        return { ...job(), status: "failed" as const, error: error.message };
+      },
+      async setDocumentStatus(_id: string, _status: string, error: string) {
+        persistedDocumentError = error;
+        resolvePersisted();
+      },
+    } as unknown as KnowledgeRepository;
+    const ingestion = {
+      async process() {
+        return new Promise<void>(() => {});
+      },
+    } as unknown as IngestionService;
+
+    const stop = startWorkerLoop({ repo, ingestion, leaseMs: 60_000, ingestionTimeoutMs: 1 });
+    try {
+      await Promise.race([persisted, Bun.sleep(500).then(() => { throw new Error("timeout was not persisted"); })]);
+      expect(persistedJobError).toBe("INGESTION_TIMEOUT: Ingestion timed out.");
+      expect(persistedDocumentError).toBe(persistedJobError);
+      expect(parseIngestionError(persistedJobError)).toEqual({
+        code: "INGESTION_TIMEOUT",
+        message: "Ingestion timed out.",
+        action: "Retry once. If it fails again, check Jobs and troubleshooting.",
+      });
     } finally {
       stop();
     }

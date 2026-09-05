@@ -12,7 +12,7 @@ export const PUBLIC_INGESTION_FAILURES = {
   DOCUMENT_RESOURCE_LIMIT: "This file is too large or complex to ingest.",
   PAYLOAD_TOO_LARGE: "This upload is too large.",
   INGESTION_TIMEOUT: "Ingestion timed out.",
-  DOCUMENT_MALFORMED: "This file could not be read.",
+  DOCUMENT_MALFORMED: "This document could not be parsed.",
 } as const;
 
 export type IngestionFailureCode = keyof typeof PUBLIC_INGESTION_FAILURES;
@@ -25,7 +25,7 @@ function codeOf(error: unknown): string | undefined {
 
 export function publicIngestionFailure(error: unknown): PublicIngestionFailure {
   const code = codeOf(error);
-  if (code && code in PUBLIC_INGESTION_FAILURES) {
+  if (code && Object.hasOwn(PUBLIC_INGESTION_FAILURES, code)) {
     const knownCode = code as IngestionFailureCode;
     return { code: knownCode, message: PUBLIC_INGESTION_FAILURES[knownCode] };
   }

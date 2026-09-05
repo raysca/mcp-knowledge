@@ -12,7 +12,7 @@ include parser output, paths, file contents, credentials, or stack traces.
 | `DOCUMENT_RESOURCE_LIMIT` | The extracted document is too large or complex. | Split the file or reduce its size, then upload it again. |
 | `PAYLOAD_TOO_LARGE` | The upload exceeds the configured upload limit. | Split the file or reduce its size, then upload it again. |
 | `INGESTION_TIMEOUT` | Processing took too long. | Retry once from Jobs. If it fails again, inspect the checks below. |
-| `DOCUMENT_MALFORMED` | The file could not be read. | Re-export it from the source application, then upload it again. |
+| `DOCUMENT_MALFORMED` | The document could not be parsed. | Re-export it from the source application, then upload it again. |
 
 An unrecognized failure is shown as `DOCUMENT_MALFORMED`; use Jobs and this
 guide rather than relying on a raw parser or worker message.

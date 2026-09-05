@@ -9,7 +9,7 @@ describe("publicIngestionFailure", () => {
     ["DOCUMENT_RESOURCE_LIMIT", "This file is too large or complex to ingest."],
     ["PAYLOAD_TOO_LARGE", "This upload is too large."],
     ["INGESTION_TIMEOUT", "Ingestion timed out."],
-    ["DOCUMENT_MALFORMED", "This file could not be read."],
+    ["DOCUMENT_MALFORMED", "This document could not be parsed."],
   ])("returns stable public copy for %s", (code, message) => {
     expect(publicIngestionFailure(new AppError(code as IngestionFailureCode, "untrusted worker output"))).toEqual({
       code: code as IngestionFailureCode,
@@ -24,9 +24,16 @@ describe("publicIngestionFailure", () => {
 
     expect(result).toEqual({
       code: "DOCUMENT_MALFORMED",
-      message: "This file could not be read.",
+      message: "This document could not be parsed.",
     });
     expect(JSON.stringify(result)).not.toContain("/Users/private/secret.pdf");
     expect(JSON.stringify(result)).not.toContain("super-secret-token");
+  });
+
+  test.each(["toString", "constructor", "__proto__"])("rejects inherited failure code %s", (code) => {
+    expect(publicIngestionFailure({ code })).toEqual({
+      code: "DOCUMENT_MALFORMED",
+      message: "This document could not be parsed.",
+    });
   });
 });

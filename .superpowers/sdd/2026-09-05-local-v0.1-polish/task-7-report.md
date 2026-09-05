@@ -50,3 +50,12 @@
 - No outstanding implementation concerns. Existing historic database rows are
   not rewritten, but their messages are ignored by the UI parser; newly written
   worker failures use the safe format.
+
+## Fix round 1: timeout and own-property hardening
+
+- RED: `bun test tests/unit/ingestion-failure.test.ts tests/unit/worker-loop.test.ts tests/unit/ingestion-error-ui.test.tsx` — 13 pass, 10 fail. The real worker timeout persisted `DOCUMENT_MALFORMED`, malformed copy differed from the revised contract, and `toString`, `constructor`, and `__proto__` returned inherited function/object values.
+- GREEN: the same focused command — 23 pass, 0 fail before the additional UI inherited-code coverage; the UI-only inherited-code check also passed (12 pass, 0 fail) because its uppercase code grammar already rejects those values.
+- Full verification: `bun test` — 223 pass, 0 fail, 829 assertions; `bun run typecheck` and `git diff --check` passed.
+- The worker now throws a coded internal `AppError` only at the timeout race boundary, so arbitrary plain `Error("INGESTION_TIMEOUT")` text is not treated as a trusted code.
+- The public mapper uses `Object.hasOwn` before reading its record. Tests prove all three inherited key names fall back to `{ code: "DOCUMENT_MALFORMED", message: "This document could not be parsed." }` without function or object leakage.
+- Self-review: public persistence still occurs exactly once in the worker catch path; the job and document receive the same fixed string, and UI actions are derived from that code. Updated malformed copy is identical in core, UI, and troubleshooting guidance.
