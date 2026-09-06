@@ -37,6 +37,27 @@ describe("native-text parsers", () => {
     ]);
   });
 
+  test("html walks lists and blockquotes", async () => {
+    const doc = await parse(
+      "page.html",
+      "<ul><li>One</li><li>Two</li></ul><blockquote>Said someone.</blockquote>",
+      "text/html",
+    );
+    expect(doc.blocks).toEqual([
+      { type: "list", ordered: false, items: ["One", "Two"] },
+      { type: "quote", text: "Said someone." },
+    ]);
+  });
+
+  test("html ignores script and style content, including stray tag-like text inside them", async () => {
+    const doc = await parse(
+      "page.html",
+      '<style>p::before{content:"<p>fake</p>"}</style><script>const s = "<p>fake</p>";</script><p>Real.</p>',
+      "text/html",
+    );
+    expect(doc.blocks).toEqual([{ type: "paragraph", text: "Real." }]);
+  });
+
   test("json code blocks retain the whole-document character range", async () => {
     const doc = await parse("data.json", '{"ok":true}', "application/json");
     expect(doc.blocks).toEqual([

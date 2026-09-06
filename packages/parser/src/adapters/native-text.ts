@@ -52,13 +52,27 @@ export function parseMarkdown(text: string): DocumentBlock[] {
 }
 
 function parseHtml(text: string): DocumentBlock[] {
+  // Drop script/style content before matching: it's never document text, and (unlike a
+  // real DOM parser) a naive tag regex would otherwise treat a stray "<p>"-looking string
+  // inside embedded JS/JSON as a paragraph.
+  const cleaned = text
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   const blocks: DocumentBlock[] = [];
-  const re = /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>|<p\b[^>]*>([\s\S]*?)<\/p>/gi;
-  for (const m of text.matchAll(re)) {
+  const re =
+    /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>|<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>|<(ul|ol)\b[^>]*>([\s\S]*?)<\/\4>|<p\b[^>]*>([\s\S]*?)<\/p>/gi;
+  for (const m of cleaned.matchAll(re)) {
     if (m[1]) {
       blocks.push({ type: "heading", level: Number(m[1]), text: stripTags(m[2] ?? "") });
+    } else if (m[3] !== undefined) {
+      blocks.push({ type: "quote", text: stripTags(m[3]) });
+    } else if (m[4]) {
+      const items = [...m[5]!.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)]
+        .map((li) => stripTags(li[1] ?? ""))
+        .filter((item) => item.length > 0);
+      if (items.length > 0) blocks.push({ type: "list", ordered: m[4].toLowerCase() === "ol", items });
     } else {
-      blocks.push({ type: "paragraph", text: stripTags(m[3] ?? "") });
+      blocks.push({ type: "paragraph", text: stripTags(m[6] ?? "") });
     }
   }
   return blocks;
