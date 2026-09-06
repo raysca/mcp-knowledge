@@ -50,6 +50,85 @@ describe("createShutdownHandler", () => {
     }
   }, 20_000);
 
+  test("a completed ingestion cannot leave its deadline keeping the process alive", async () => {
+    const child = Bun.spawn(
+      ["bun", join(import.meta.dir, "../fixtures/worker-loop-successful-stop-entry.ts")],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+
+    try {
+      const reader = child.stdout.getReader();
+      const output = await Promise.race([
+        reader.read(),
+        Bun.sleep(5_000).then(() => ({ done: false, value: undefined })),
+      ]);
+      reader.releaseLock();
+      expect(new TextDecoder().decode(output.value)).toContain("done");
+
+      const exitCode = await Promise.race([
+        child.exited,
+        Bun.sleep(2_000).then(() => "timeout" as const),
+      ]);
+      expect(exitCode).not.toBe("timeout");
+      expect(exitCode).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await child.exited;
+    }
+  }, 10_000);
+
+  test.each(["failure", "in-flight-stop"])("%s releases its ingestion deadline", async (scenario) => {
+    const child = Bun.spawn(
+      ["bun", join(import.meta.dir, "../fixtures/worker-loop-successful-stop-entry.ts"), scenario],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+
+    try {
+      const reader = child.stdout.getReader();
+      const output = await Promise.race([
+        reader.read(),
+        Bun.sleep(5_000).then(() => ({ done: false, value: undefined })),
+      ]);
+      reader.releaseLock();
+      expect(new TextDecoder().decode(output.value)).toContain("done");
+      const exitCode = await Promise.race([
+        child.exited,
+        Bun.sleep(2_000).then(() => "timeout" as const),
+      ]);
+      expect(exitCode).not.toBe("timeout");
+      expect(exitCode).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await child.exited;
+    }
+  }, 10_000);
+
+  test("stopping while claimJob resolves does not begin or retain another job", async () => {
+    const child = Bun.spawn(
+      ["bun", join(import.meta.dir, "../fixtures/worker-loop-successful-stop-entry.ts"), "claim-race"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+
+    try {
+      const reader = child.stdout.getReader();
+      const output = await Promise.race([
+        reader.read(),
+        Bun.sleep(5_000).then(() => ({ done: false, value: undefined })),
+      ]);
+      reader.releaseLock();
+      const exitCode = await Promise.race([
+        child.exited,
+        Bun.sleep(2_000).then(() => "timeout" as const),
+      ]);
+      expect(exitCode).not.toBe("timeout");
+      expect(exitCode).toBe(0);
+      expect(new TextDecoder().decode(output.value)).toBe("done\n");
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await child.exited;
+    }
+  }, 10_000);
+
   test("a worker crash after stop cannot keep the process alive", async () => {
     const child = Bun.spawn(
       ["bun", join(import.meta.dir, "../fixtures/embedder-crash-during-stop-entry.ts")],

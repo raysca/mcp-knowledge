@@ -10,6 +10,7 @@ export function startWorkerLoop(input: {
 }): () => void {
   const workerId = newId("job").replace("job_", "wkr_");
   let stopped = false;
+  let activeTimeout: ReturnType<typeof setTimeout> | undefined;
 
   async function tick() {
     while (!stopped) {
@@ -21,20 +22,26 @@ export function startWorkerLoop(input: {
         await Bun.sleep(250);
         continue;
       }
+      if (stopped) break;
       if (!job) {
         await Bun.sleep(250);
         continue;
       }
       try {
-        let finished = false;
-        await Promise.race([
-          input.ingestion.process(job).finally(() => {
-            finished = true;
-          }),
-          Bun.sleep(input.ingestionTimeoutMs).then(() => {
-            if (!finished) throw new AppError("INGESTION_TIMEOUT", "ingestion timed out");
-          }),
-        ]);
+        let timeout!: ReturnType<typeof setTimeout>;
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            if (activeTimeout === timeout) activeTimeout = undefined;
+            reject(new AppError("INGESTION_TIMEOUT", "ingestion timed out"));
+          }, input.ingestionTimeoutMs);
+          activeTimeout = timeout;
+        });
+        try {
+          await Promise.race([input.ingestion.process(job), deadline]);
+        } finally {
+          clearTimeout(timeout);
+          if (activeTimeout === timeout) activeTimeout = undefined;
+        }
       } catch (error) {
         try {
           const failure = publicIngestionFailure(error);
@@ -55,5 +62,9 @@ export function startWorkerLoop(input: {
   void tick();
   return () => {
     stopped = true;
+    if (activeTimeout !== undefined) {
+      clearTimeout(activeTimeout);
+      activeTimeout = undefined;
+    }
   };
 }
