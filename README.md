@@ -1,52 +1,69 @@
 # Document Knowledge MCP Service
 
-Self-hostable document knowledge service. Ingest files, index them locally, retrieve over HTTP and MCP. No hosted LLM required.
+A self-hostable document knowledge service: ingest arbitrary documents, chunk
+and embed them locally, and search them with explainable hybrid (vector +
+lexical) retrieval over both a REST API and MCP. No hosted LLM required —
+embeddings run locally.
 
-## Development (local)
+## What this is not
+
+Not a chat app, not an agent framework, not a general document-management
+system. No hosted AI dependency, no multi-tenancy, no distributed deployment
+in v0.1 — see [CHANGELOG.md](CHANGELOG.md) for the full list of what's
+deliberately out of scope for this release.
+
+## Prerequisite
+
+Docker Engine or Docker Desktop with Compose. Nothing else needs to be
+installed on the host — Bun, the parser, and the embedding model are all
+inside the image.
+
+## Quick start
 
 ```bash
-bun install
-bun db:migrate
-bun dev
+docker compose up -d
 ```
 
-No `DASHBOARD_PASSPHRASE` set means the instance has no auth at all — the dashboard, REST API, and MCP all just work. There's no network-position check anywhere (no loopback bypass, no bind-host special-casing) — auth here means "protected the same way for everyone, or not protected at all." Set `DASHBOARD_PASSPHRASE` any time you want the dashboard behind a login, including on the local profile.
-
-Dashboard, REST, and MCP share one `Bun.serve()` process (default `http://127.0.0.1:3000`). Retrieval playground: `/playground`.
-
-### With a passphrase set
+This builds the image, starts one container bound to `127.0.0.1:3000`, and
+creates a named volume (`mcp-knowledge-data`) that holds everything —
+database, document originals, embeddings. Wait for it to report healthy:
 
 ```bash
-DASHBOARD_PASSPHRASE=correct-horse-battery-staple bun dev
+docker compose ps
+curl --fail http://127.0.0.1:3000/health
 ```
 
-Opening the dashboard now prompts for the passphrase. On success the server sets an `HttpOnly`, `SameSite=Strict` session cookie (`mk_session`, 30 days) — the browser carries it automatically from then on, no token to copy anywhere. Logging in also unlocks `/api/v1/*` for that browser session, so you can mint your first API key from the dashboard itself. Wrong-passphrase attempts are rate-limited per remote address.
+With no `DASHBOARD_PASSPHRASE` set, the instance has no auth at all — the
+dashboard, REST API, and MCP endpoint all just work on loopback. That's fine
+for a service only your own machine can reach; see
+[Exposing beyond loopback](#exposing-beyond-loopback) before putting this
+anywhere else can reach it.
 
-This is what makes it safe to put a real reverse proxy in front of an instance: the proxy can forward a session cookie, but it can't mint one — the passphrase is still required to establish it. `APP_PROFILE=server` refuses to boot without `DASHBOARD_PASSPHRASE` set, for exactly this reason.
+## First upload and search
 
-### Generate an API key
-
-API keys are for MCP clients and scripts — separate from the dashboard's passphrase/session. Once a passphrase is set, minting a key requires either an active dashboard session or an existing `admin` key:
+Open `http://127.0.0.1:3000` for the dashboard, or use the API directly:
 
 ```bash
-curl -sS -X POST http://127.0.0.1:3000/api/v1/api-keys \
+curl -sS -X POST http://127.0.0.1:3000/api/v1/documents \
+  -F "file=@/path/to/a/document.pdf"
+
+curl -sS -X POST http://127.0.0.1:3000/api/v1/search \
   -H 'content-type: application/json' \
-  -b 'mk_session=<value from the dashboard login response>' \
-  -d '{"name":"local","scopes":["admin"]}'
+  -d '{"query":"a phrase from the document","mode":"hybrid","limit":8}'
 ```
 
-The response includes `secret` once (a `key_…` string). Copy it; only a hash is stored. Omit `scopes` to get `read`. Allowed scopes: `read`, `write`, `admin`.
+Poll `GET /api/v1/documents/:id` or watch the Jobs page until the document
+reaches `ready`. The dashboard's `/playground` page lets you try hybrid,
+vector, and lexical search side by side and inspect why each result ranked
+where it did. See [docs/supported-formats.md](docs/supported-formats.md) for
+accepted file types and size limits.
 
-```bash
-curl -sS http://127.0.0.1:3000/api/v1/documents \
-  -H "Authorization: Bearer <secret>"
-```
+## MCP
 
-Use the same header on `/mcp`. MCP tools are read-only.
-
-Empty the corpus: `POST /api/v1/documents/purge` with `{ "confirm": "purge" }`. Collections and API keys stay.
-
-### Cursor / Claude MCP (Streamable HTTP)
+Dashboard, REST, and MCP share the same `Bun.serve()` process and port — the
+MCP endpoint is `/mcp` (Streamable HTTP). MCP tools are read-only
+(`search_documents`, `get_document`, `get_chunk`, `list_documents`,
+`list_collections`); use the REST API to upload or manage documents.
 
 ```json
 {
@@ -61,20 +78,123 @@ Empty the corpus: `POST /api/v1/documents/purge` with `{ "confirm": "purge" }`. 
 }
 ```
 
-If no `DASHBOARD_PASSPHRASE` is set, the header can be omitted entirely.
+If no `DASHBOARD_PASSPHRASE` is set, omit the `Authorization` header entirely.
 
-URL ingest: `POST /api/v1/documents/from-url` with `{ "url": "https://..." }`. Localhost, RFC1918, link-local, and cloud metadata targets are blocked (including redirects).
+### Generate an API key
 
-### Import a local directory on startup
-
-Set `INGEST_DATA_DIR` to scan one local directory in the background after the server starts:
+API keys are for MCP clients and scripts — separate from the dashboard's
+passphrase/session. Once a passphrase is set, minting a key requires either
+an active dashboard session or an existing `admin` key:
 
 ```bash
-INGEST_DATA_DIR=./knowledge bun dev
+curl -sS -X POST http://127.0.0.1:3000/api/v1/api-keys \
+  -H 'content-type: application/json' \
+  -b 'mk_session=<value from the dashboard login response>' \
+  -d '{"name":"local","scopes":["admin"]}'
+```
+
+The response includes `secret` once (a `key_…` string); only a hash is
+stored afterward. Omit `scopes` to get `read`. Allowed scopes: `read`,
+`write`, `admin`.
+
+```bash
+curl -sS http://127.0.0.1:3000/api/v1/documents \
+  -H "Authorization: Bearer <secret>"
+```
+
+Empty the corpus: `POST /api/v1/documents/purge` with `{ "confirm": "purge" }`.
+Collections and API keys stay.
+
+## Exposing beyond loopback
+
+**Set `DASHBOARD_PASSPHRASE` before making this reachable from anywhere but
+`127.0.0.1`** — a LAN address, a reverse proxy, a tunnel:
+
+```bash
+DASHBOARD_PASSPHRASE=correct-horse-battery-staple docker compose up -d
+```
+
+Opening the dashboard now prompts for the passphrase. On success the server
+sets an `HttpOnly`, `SameSite=Strict` session cookie (`mk_session`, 30 days).
+Logging in also unlocks `/api/v1/*` for that browser session, so you can mint
+your first API key from the dashboard itself. Wrong-passphrase attempts are
+rate-limited per remote address.
+
+There is no network-position exception anywhere in auth — a passphrase is
+checked the same way regardless of who's asking or how they connect, which is
+what makes it safe to put a real reverse proxy in front. See
+[SECURITY.md](SECURITY.md) for the full model, including URL-ingest SSRF
+protections and backup sensitivity.
+
+## Import a local directory on startup
+
+Set `INGEST_DATA_DIR` to scan one local directory in the background after the
+server starts:
+
+```yaml
+# compose.yaml
+environment:
+  INGEST_DATA_DIR: /import
+volumes:
+  - ./knowledge:/import:ro
 ```
 
 `INGEST_DATA_MAX_DEPTH` defaults to `8` (`0` means root files only) and
-`INGEST_DATA_MAX_FILES` defaults to `10000`. Scanning runs only with the local
-profile and `ROLE=all`. Missing files do not remove documents; changed and
-renamed scanner-owned files replace the prior document. Progress appears on
-the Jobs page.
+`INGEST_DATA_MAX_FILES` defaults to `10000`. Missing files do not remove
+documents; changed and renamed scanner-owned files replace the prior
+document. Progress appears on the Jobs page. URL ingest works the same way
+on demand: `POST /api/v1/documents/from-url` with `{ "url": "https://..." }`
+(loopback, RFC1918, link-local, and cloud-metadata targets are blocked,
+including through redirects).
+
+## Persistence, recovery, and removal
+
+Everything lives in the `mcp-knowledge-data` volume. Restarting or rebuilding
+the container preserves it:
+
+```bash
+docker compose restart
+docker compose down      # keeps the volume
+docker compose down -v   # deletes it — irreversible
+```
+
+For an offline backup or disaster recovery onto a fresh volume, see
+[docs/backup-and-restore.md](docs/backup-and-restore.md). Every derived
+artifact (normalized text, chunks, embeddings) can be rebuilt from the stored
+original via reindex; the original itself is what backup and restore protect.
+
+## Supporting docs
+
+- [docs/supported-formats.md](docs/supported-formats.md) — accepted file
+  types, OCR/password behavior, size and resource limits.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — every ingestion
+  failure code, what it means, and how to recover.
+- [docs/backup-and-restore.md](docs/backup-and-restore.md) — offline backup
+  and disaster recovery.
+- [docs/performance.md](docs/performance.md) — reference scale measurements
+  at 100/500/1,000 documents.
+- [docs/container-release.md](docs/container-release.md) — how the
+  multi-architecture image is built, tested, and published.
+- [SECURITY.md](SECURITY.md) — exposure model, SSRF boundary, and how to
+  report a vulnerability.
+- [CHANGELOG.md](CHANGELOG.md) — what's in 0.1.0 and what's deliberately not.
+
+## Contributor workflow (local checkout, no Docker)
+
+```bash
+bun install
+bun db:migrate
+bun dev
+```
+
+Dashboard, REST, and MCP share one `Bun.serve()` process (default
+`http://127.0.0.1:3000`). Before committing:
+
+```bash
+bun run typecheck
+bun test
+```
+
+`bun run release:check` runs the full release gate (typecheck, tests, CSS
+build, Compose validation, both-platform Docker smoke, scale-report
+validation) — the same gate `v0.1.0` was tagged against.
