@@ -12,7 +12,11 @@ ARG VCS_REF=unknown
 ARG VERSION=local
 LABEL org.opencontainers.image.revision=$VCS_REF \
       org.opencontainers.image.version=$VERSION
-COPY --from=install /app/node_modules node_modules
+# ponytail: bun installs each workspace package's own deps into that
+# package's own node_modules rather than always hoisting to the root - copy
+# the whole install stage tree (not just /app/node_modules) so every
+# workspace's nested node_modules comes along, then overlay the full source.
+COPY --from=install /app /app
 COPY . .
 RUN bun ui:css
 
