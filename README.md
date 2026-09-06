@@ -6,8 +6,13 @@
 
 Self-hosted document search over MCP and REST. Ingest PDFs, docs, and pages;
 get back explainable hybrid retrieval — every hit traceable to its vector
-rank, lexical rank, and fusion score. One Docker container. No hosted AI
-required.
+rank, lexical rank, and fusion score.
+
+### 🔑 No API key. No hosted AI. Ever.
+
+Embeddings run locally on a vendored model — not a proxy, not a "bring your
+own key" screen. `docker compose up -d` and it works, offline, before you've
+typed a single credential.
 
 [**Live overview →**](https://raysca.github.io/mcp-knowledge/) ·
 [Quick start](#quick-start) ·
@@ -17,11 +22,62 @@ required.
 [![License: MIT](https://img.shields.io/badge/license-MIT-3d5a80.svg)](LICENSE)
 [![Build](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml/badge.svg)](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml)
 ![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-3d5a80)
-![No hosted AI required](https://img.shields.io/badge/hosted%20AI-not%20required-b42318)
+![No API key required](https://img.shields.io/badge/API%20key-not%20required-2e7d32)
 
 </div>
 
 ---
+
+## Why not just use X?
+
+|  | **Document Knowledge** | Hosted RAG APIs<br/>(OpenAI Assistants, etc.) | LangChain / LlamaIndex | Self-hosted "chat with docs" apps |
+| --- | :---: | :---: | :---: | :---: |
+| Needs a paid LLM API key | **No** | Yes | Usually | Usually |
+| MCP-native endpoint | **Yes** | No | DIY | Rare |
+| Explainable ranking (vector + lexical + fusion score, per hit) | **Yes** | No | DIY | Rare |
+| Runs as one container | **Yes** | N/A — hosted | No — you assemble the stack | Usually several services |
+| Broad format support out of the box | **Yes** (via AnyDoc) | Varies | DIY | Varies |
+| Your documents never leave your machine | **Yes** | No | Depends how you wire it | Usually |
+
+It's not that the alternatives are bad — a hosted API is faster to a demo,
+and LangChain/LlamaIndex are more flexible if you're building something
+bespoke. This is for when you want the retrieval *service* already built,
+running on your own hardware, with nothing to sign up for.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph In[" "]
+        direction TB
+        U[Upload]
+        L[Watched folder]
+        R[URL]
+    end
+    In --> P["Parse<br/>AnyDoc + native text"]
+    P --> C["Chunk &amp; embed<br/>local MiniLM, worker thread"]
+    C --> D[("libSQL<br/>vector + FTS5, one file")]
+    D --> H{"Hybrid search<br/>Reciprocal Rank Fusion"}
+    H --> REST[REST API]
+    H --> MCP[MCP]
+    H --> UI[Dashboard]
+```
+
+Parsing runs in a spawned subprocess and embedding in a worker thread, so a
+hostile or malformed upload can't take the serving process down. Nothing in
+this pipeline calls out to a hosted model.
+
+## Any format you throw at it
+
+Document parsing is powered by [AnyDoc](https://github.com/firecrawl/anydoc),
+the same document-conversion engine behind Firecrawl — so Word, PowerPoint,
+Excel, CSV, PDF, OpenDocument, RTF, and EPUB files are all handled by one
+battle-tested native parser instead of a pile of format-specific hacks.
+Native HTML, Markdown, JSON, XML, and plain text are parsed directly without
+AnyDoc at all. Drop in a `.zip` and every allowlisted file inside it gets
+extracted and ingested the same way. See
+[docs/supported-formats.md](docs/supported-formats.md) for the full list and
+size limits.
 
 ## Why this exists
 
@@ -36,14 +92,8 @@ it to.
   score ship with every hit, over both REST and MCP.
 - **MCP-native.** A Streamable HTTP MCP endpoint sits next to the REST API on
   the same origin — point Claude, Cursor, or any MCP client at it directly.
-- **Zero required AI vendor.** Embeddings run locally via a vendored MiniLM
-  model. No OpenAI, Anthropic, or Cohere key needed to ingest or search a
-  single document.
 - **One container, one process.** `Bun.serve()` handles the dashboard, REST,
   and MCP together; libSQL and the local filesystem hold everything.
-- **Isolated by design.** Parsing runs in a spawned subprocess and embedding
-  in a worker thread — a hostile or malformed upload can't take the server
-  down.
 - **A real recovery story.** Originals are canonical; every chunk and
   embedding can be rebuilt from them. Backup and restore are documented, not
   promised.
@@ -52,6 +102,9 @@ Not sure this is what you're looking for? See [What this is not](#what-this-is-n
 
 ## Contents
 
+- [Why not just use X?](#why-not-just-use-x)
+- [How it works](#how-it-works)
+- [Any format you throw at it](#any-format-you-throw-at-it)
 - [Prerequisite](#prerequisite)
 - [Quick start](#quick-start)
 - [First upload and search](#first-upload-and-search)
