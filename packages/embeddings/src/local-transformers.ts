@@ -52,4 +52,8 @@ export class LocalTransformersEmbedder implements Embedder {
       this.worker.postMessage({ id, texts, modelPath: this.modelPath });
     });
   }
+
+  stop(): void {
+    (this.worker as Worker & { unref(): void }).unref();
+  }
 }

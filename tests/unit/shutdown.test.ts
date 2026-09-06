@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createShutdownHandler } from "../../apps/server/src/shutdown.ts";
 
 describe("createShutdownHandler", () => {
@@ -15,4 +18,35 @@ describe("createShutdownHandler", () => {
 
     expect(calls).toEqual(["app", "server"]);
   });
+
+  test("SIGTERM lets an app process with the local embedder exit promptly", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-knowledge-shutdown-"));
+    const child = Bun.spawn(
+      ["bun", join(import.meta.dir, "../fixtures/shutdown-app-entry.ts"), dir],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+
+    try {
+      const reader = child.stdout.getReader();
+      const ready = await Promise.race([
+        reader.read(),
+        Bun.sleep(10_000).then(() => ({ done: false, value: undefined })),
+      ]);
+      reader.releaseLock();
+      expect(new TextDecoder().decode(ready.value)).toContain("ready");
+
+      child.kill("SIGTERM");
+      const exitCode = await Promise.race([
+        child.exited,
+        Bun.sleep(2_000).then(() => "timeout" as const),
+      ]);
+
+      expect(exitCode).not.toBe("timeout");
+      expect(exitCode).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await child.exited;
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

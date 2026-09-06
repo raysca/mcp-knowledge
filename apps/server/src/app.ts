@@ -111,6 +111,7 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
     stop: () => {
       startupScan.stop();
       stopWorker();
+      embedder.stop();
     },
     fetch: (req, server) => handleRequest(req, services, server?.requestIP?.(req)?.address),
   };
