@@ -42,12 +42,16 @@ export class IngestionService {
   ) {}
 
   async process(job: IngestionJob, signal?: AbortSignal): Promise<void> {
-    signal?.throwIfAborted();
+    const throwIfAborted = () => signal?.throwIfAborted();
+    throwIfAborted();
     const doc = await this.repo.getDocument(job.documentId);
+    throwIfAborted();
     if (!doc) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
     const revision = await this.repo.getRevision(job.revisionId);
+    throwIfAborted();
     if (!revision) throw new AppError("DOCUMENT_NOT_FOUND", "Revision was not found.", 404);
     const blob = await this.blobs.get(revision.storageKey);
+    throwIfAborted();
     const parser = this.registry.find({
       mimeType: doc.mimeType,
       extension: doc.extension,
@@ -61,7 +65,7 @@ export class IngestionService {
       mimeType: doc.mimeType,
       signal,
     });
-    signal?.throwIfAborted();
+    throwIfAborted();
     const extractBytes = new TextEncoder().encode(JSON.stringify(normalized)).byteLength;
     if (extractBytes > this.limits.MAX_EXTRACT_BYTES) {
       throw new AppError("DOCUMENT_RESOURCE_LIMIT", "Extracted text exceeds MAX_EXTRACT_BYTES.", 400);
@@ -89,7 +93,9 @@ export class IngestionService {
       throw new AppError("DOCUMENT_RESOURCE_LIMIT", "Chunk count exceeds MAX_CHUNKS_PER_DOCUMENT.", 400);
     }
     const key = normalizedStorageKey(doc.id, revision.id);
+    throwIfAborted();
     await this.blobs.put(key, new Blob([JSON.stringify(normalized)], { type: "application/json" }));
+    throwIfAborted();
     const now = new Date();
     const chunks: StoredChunk[] = drafts.map((d) => ({
       ...d,
@@ -100,11 +106,14 @@ export class IngestionService {
       createdAt: now,
     }));
     await this.repo.replaceChunks(revision.id, chunks);
+    throwIfAborted();
     const embedded: EmbeddedChunk[] = [];
     const batchSize = this.limits.EMBEDDING_BATCH_SIZE;
     for (let i = 0; i < chunks.length; i += batchSize) {
+      throwIfAborted();
       const batch = chunks.slice(i, i + batchSize);
       const vecs = await this.embedder.embed(batch.map((c) => c.embeddingText));
+      throwIfAborted();
       for (let j = 0; j < batch.length; j++) {
         const vector = vecs[j];
         if (!vector) {
@@ -114,6 +123,7 @@ export class IngestionService {
       }
     }
     await this.vectors.insert(embedded);
+    throwIfAborted();
     await this.repo.updateRevision(revision.id, {
       parserName: parser.name,
       parserVersion: parser.version,
@@ -125,8 +135,11 @@ export class IngestionService {
       normalizedStorageKey: key,
       chunkCount: chunks.length,
     });
+    throwIfAborted();
     await this.repo.setDocumentStatus(doc.id, "ready", null, title);
+    throwIfAborted();
     await this.repo.completeJob(job.id);
+    throwIfAborted();
   }
 }
 
