@@ -1,5 +1,6 @@
 export type SourceFileOutcome =
   | "imported"
+  | "archived"
   | "unchanged"
   | "duplicate"
   | "unsupported"

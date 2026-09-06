@@ -10,7 +10,9 @@ import type {
   SourceFileRecord,
 } from "../../packages/core/src/domain/source.ts";
 import type { BlobStore, KnowledgeRepository } from "../../packages/core/src/ports.ts";
+import { isAllowedUpload } from "../../packages/core/src/mime.ts";
 import { SourceImportService } from "../../packages/core/src/services/source-import-service.ts";
+import type { ArchiveImportService } from "../../packages/core/src/services/archive-import-service.ts";
 import { createKnowledgeRepository, migrateLibsql } from "../../packages/db/src/index.ts";
 
 type SourceImportRepository = Pick<
@@ -122,6 +124,18 @@ class FakeRepository implements SourceImportRepository {
   }
 }
 
+class FakeArchives implements Pick<ArchiveImportService, "stage"> {
+  staged: Array<{ filename: string; bytes: Uint8Array }> = [];
+  nextArchiveId = "arc_1";
+  stageError: Error | undefined;
+
+  async stage(input: { filename: string; bytes: Uint8Array }): Promise<{ archiveId: string }> {
+    if (this.stageError) throw this.stageError;
+    this.staged.push({ filename: input.filename, bytes: input.bytes });
+    return { archiveId: this.nextArchiveId };
+  }
+}
+
 class FakeBlobs implements Pick<BlobStore, "delete" | "put"> {
   puts: { key: string; data: Blob }[] = [];
   deleted: string[] = [];
@@ -165,14 +179,16 @@ function setup(signal = new AbortController().signal) {
   const source = new FakeSource();
   const repo = new FakeRepository();
   const blobs = new FakeBlobs();
+  const archives = new FakeArchives();
   const service = new SourceImportService({
     source,
     repo,
     blobs,
+    archives,
     maxUploadBytes: 64,
     signal,
   });
-  return { source, repo, blobs, service };
+  return { source, repo, blobs, archives, service };
 }
 
 async function withRepository(
@@ -270,6 +286,7 @@ describe("SourceImportService", () => {
         source: new FakeSource(),
         repo: flakyRepo,
         blobs: new FakeBlobs(),
+        archives: new FakeArchives(),
         maxUploadBytes: 64,
         signal: new AbortController().signal,
       });
@@ -693,5 +710,122 @@ describe("SourceImportService", () => {
     });
 
     expect(blobs.deleted).toEqual(["old-original", "old-normalized"]);
+  });
+});
+
+describe("SourceImportService zip archives", () => {
+  test("stages a new zip and records an unowned archived row", async () => {
+    const { source, repo, archives, service } = setup();
+    source.bytes = new TextEncoder().encode("pkzip bytes");
+    source.sha256 = "sha-zip-1";
+
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-1");
+
+    expect(result).toEqual({ outcome: "queued", archiveId: "arc_1" });
+    expect(archives.staged).toEqual([{ filename: "bundle.zip", bytes: source.bytes }]);
+    expect(repo.recorded).toEqual([
+      {
+        sourceId: "source-a",
+        relativePath: "bundle.zip",
+        sha256: "sha-zip-1",
+        documentId: null,
+        lastOutcome: "archived",
+        scanCycle: "cycle-1",
+      },
+    ]);
+  });
+
+  test("does not restage an unchanged zip", async () => {
+    const { repo, source, archives, service } = setup();
+    repo.sourceFile = sourceRecord({
+      relativePath: "bundle.zip",
+      sha256: "sha-zip-1",
+      lastOutcome: "archived",
+      scanCycle: "cycle-old",
+    });
+    source.sha256 = "sha-zip-1";
+
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-2");
+
+    expect(result).toEqual({ outcome: "unchanged" });
+    expect(archives.staged).toEqual([]);
+    expect(repo.recorded).toEqual([
+      {
+        sourceId: "source-a",
+        relativePath: "bundle.zip",
+        sha256: "sha-zip-1",
+        documentId: null,
+        lastOutcome: "unchanged",
+        scanCycle: "cycle-2",
+      },
+    ]);
+  });
+
+  test("restages a changed zip", async () => {
+    const { repo, source, archives, service } = setup();
+    repo.sourceFile = sourceRecord({
+      relativePath: "bundle.zip",
+      sha256: "sha-zip-old",
+      lastOutcome: "archived",
+      scanCycle: "cycle-old",
+    });
+    source.sha256 = "sha-zip-new";
+    archives.nextArchiveId = "arc_2";
+
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-2");
+
+    expect(result).toEqual({ outcome: "queued", archiveId: "arc_2" });
+    expect(archives.staged).toHaveLength(1);
+    expect(repo.recorded).toEqual([
+      {
+        sourceId: "source-a",
+        relativePath: "bundle.zip",
+        sha256: "sha-zip-new",
+        documentId: null,
+        lastOutcome: "archived",
+        scanCycle: "cycle-2",
+      },
+    ]);
+  });
+
+  test("a zip that fails to read is failed and never staged", async () => {
+    const { source, archives, service } = setup();
+    source.inspectError = new Error("disk read error");
+
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-1");
+
+    expect(result.outcome).toBe("failed");
+    expect(archives.staged).toEqual([]);
+  });
+
+  test("a zip exceeding MAX_UPLOAD_BYTES is oversized and never staged", async () => {
+    const { source, archives, service } = setup();
+    const error = new AppError("PAYLOAD_TOO_LARGE", "too big", 413);
+    source.inspectError = error;
+
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-1");
+
+    expect(result.outcome).toBe("oversized");
+    expect(archives.staged).toEqual([]);
+  });
+
+  test("a zip for which stage() throws is failed with a sanitized message", async () => {
+    const { archives, service } = setup();
+    archives.stageError = new Error("blob store unavailable at /Users/private/data");
+
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-1");
+
+    expect(result.outcome).toBe("failed");
+    expect(result.error).toContain("blob store unavailable");
+  });
+
+  test("is intercepted before isAllowedUpload, which still rejects .zip on its own", async () => {
+    expect(isAllowedUpload("bundle.zip")).toBe(false);
+
+    const { archives, service } = setup();
+    const result = await service.process({ relativePath: "bundle.zip" }, "cycle-1");
+
+    expect(result.outcome).toBe("queued");
+    expect(archives.staged).toHaveLength(1);
   });
 });

@@ -5,6 +5,7 @@ import { extensionOf, isAllowedUpload, sniffMime } from "../mime.ts";
 import type { SourceFileOutcome, SourceFileRecord } from "../domain/source.ts";
 import type { BlobStore, KnowledgeRepository } from "../ports.ts";
 import { originalStorageKey } from "./document-service.ts";
+import type { ArchiveImportService } from "./archive-import-service.ts";
 
 type SourceReader = {
   readonly sourceId: string;
@@ -39,6 +40,7 @@ export type SourceProcessResult = {
   documentId?: string;
   replacedDocumentId?: string;
   renamed?: boolean;
+  archiveId?: string;
   error?: string;
 };
 
@@ -61,6 +63,7 @@ export class SourceImportService {
       source: SourceReader;
       repo: SourceImportRepository;
       blobs: SourceImportBlobStore;
+      archives: Pick<ArchiveImportService, "stage">;
       maxUploadBytes: number;
       signal: AbortSignal;
     },
@@ -99,6 +102,10 @@ export class SourceImportService {
       });
     }
     const livePathOwnership = this.liveOwnership(samePath, samePathDocument);
+
+    if (extensionOf(filename) === "zip") {
+      return this.processArchive(candidate, filename, samePath, scanCycle);
+    }
 
     if (!isAllowedUpload(filename)) {
       this.throwIfAborted();
@@ -329,10 +336,78 @@ export class SourceImportService {
     };
   }
 
+  private async processArchive(
+    candidate: { relativePath: string },
+    filename: string,
+    samePath: SourceFileRecord | null,
+    scanCycle: string,
+  ): Promise<SourceProcessResult> {
+    let inspected: { bytes: Uint8Array; sizeBytes: number; sha256: string };
+    try {
+      inspected = await this.input.source.inspectAndRead(
+        candidate,
+        this.input.maxUploadBytes,
+        this.input.signal,
+      );
+    } catch (error) {
+      this.throwIfCancellation(error);
+      const outcome: SourceFileOutcome =
+        errorCode(error) === "PAYLOAD_TOO_LARGE" ? "oversized" : "failed";
+      return this.recordOutcome({
+        candidate,
+        scanCycle,
+        outcome,
+        sha256: samePath?.sha256 ?? null,
+        documentId: null,
+        error: outcome === "failed" ? shortErrorMessage(error) : undefined,
+      });
+    }
+    this.throwIfAborted();
+
+    if (samePath?.sha256 === inspected.sha256) {
+      return this.recordOutcome({
+        candidate,
+        scanCycle,
+        outcome: "unchanged",
+        sha256: inspected.sha256,
+        documentId: null,
+      });
+    }
+
+    try {
+      const { archiveId } = await this.input.archives.stage({ filename, bytes: inspected.bytes });
+      this.throwIfAborted();
+      // Bypasses recordOutcome deliberately, the same way commitImport already does for its
+      // "queued" result: recordOutcome's persisted outcome and its reported outcome are the
+      // same value for every other branch, but "archived" (persisted) and "queued" (reported)
+      // are deliberately different here, so this writes the source_files row directly with
+      // "archived" and returns its own SourceProcessResult with "queued".
+      await this.input.repo.recordSourceFile({
+        sourceId: this.input.source.sourceId,
+        relativePath: candidate.relativePath,
+        sha256: inspected.sha256,
+        documentId: null,
+        lastOutcome: "archived",
+        scanCycle,
+      });
+      return { outcome: "queued", archiveId };
+    } catch (error) {
+      this.throwIfCancellation(error);
+      return this.recordOutcome({
+        candidate,
+        scanCycle,
+        outcome: "failed",
+        sha256: inspected.sha256,
+        documentId: null,
+        error: shortErrorMessage(error),
+      });
+    }
+  }
+
   private async recordOutcome(input: {
     candidate: { relativePath: string };
     scanCycle: string;
-    outcome: Exclude<SourceFileOutcome, "imported">;
+    outcome: Exclude<SourceFileOutcome, "imported" | "archived">;
     sha256: string | null;
     documentId: string | null;
     resultDocumentId?: string;
