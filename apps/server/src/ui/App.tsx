@@ -16,6 +16,7 @@ import {
   shouldNavigateInApp,
 } from "./pages/document-detail.tsx";
 import { ScanStatusPanel } from "./components/scan-status-panel.tsx";
+import { ArchiveImportsPanel, type ArchiveImportSummary } from "./components/archive-imports-panel.tsx";
 import { IngestionErrorDetails } from "./lib/ingestion-error.ts";
 import { PlaygroundPage } from "./pages/playground.tsx";
 import type { StartupScanStatus } from "../startup-scan/coordinator.ts";
@@ -462,6 +463,8 @@ function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [scanStatus, setScanStatus] = useState<StartupScanStatus | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [archiveImports, setArchiveImports] = useState<ArchiveImportSummary[]>([]);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const res = await fetch("/api/v1/jobs");
@@ -488,12 +491,23 @@ function JobsPage() {
     setScanError(null);
   }, []);
 
+  const reloadArchiveImports = useCallback(async () => {
+    const res = await fetch("/api/v1/archives?limit=5");
+    const data = (await res.json()) as { items?: ArchiveImportSummary[]; error?: { message: string } };
+    if (!res.ok) {
+      setArchiveError(data.error?.message ?? "Could not load archive imports.");
+      return;
+    }
+    setArchiveImports(data.items ?? []);
+    setArchiveError(null);
+  }, []);
+
   useEffect(() => {
-    const poll = () => void Promise.allSettled([reload(), reloadScanStatus()]);
+    const poll = () => void Promise.allSettled([reload(), reloadScanStatus(), reloadArchiveImports()]);
     poll();
     const t = setInterval(poll, 2000);
     return () => clearInterval(t);
-  }, [reload, reloadScanStatus]);
+  }, [reload, reloadScanStatus, reloadArchiveImports]);
 
   async function onRetry(id: string) {
     const res = await fetch(`/api/v1/jobs/${id}/retry`, { method: "POST" });
@@ -507,6 +521,7 @@ function JobsPage() {
 
   return (
     <section>
+      <ArchiveImportsPanel items={archiveImports} error={archiveError} />
       {scanStatus ? <ScanStatusPanel status={scanStatus} error={scanError} /> : null}
       <p className="mb-4 text-slate">Queued, running, and failed ingestion jobs. Retry a failed job to re-parse the same revision.</p>
       {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
