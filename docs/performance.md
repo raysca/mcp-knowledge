@@ -8,9 +8,9 @@ level guarantees, capacity limits, or claims about larger or more complex corpor
 
 | Documents | Ingestion total | Per document | Sampled peak RSS | Volume storage | Cold search p50 / p95 | Warm search p50 / p95 | Restart to health / search |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 | 61.9 s | 619 ms | 292 MiB | 9.4 MiB | 5.1 / 7.7 ms | 4.9 / 7.2 ms | 10.5 / 10.6 s |
-| 500 | 189.3 s | 379 ms | 266 MiB | 46.0 MiB | 7.9 / 9.5 ms | 7.8 / 8.9 ms | 10.5 / 10.6 s |
-| 1,000 | 350.9 s | 351 ms | 259 MiB | 91.9 MiB | 8.6 / 9.8 ms | 8.5 / 9.6 ms | 10.5 / 10.6 s |
+| 100 | 62.9 s | 629 ms | 260 MiB | 9.4 MiB | 5.9 / 8.3 ms | 5.7 / 7.2 ms | 0.6 / 0.7 s |
+| 500 | 195.5 s | 391 ms | 277 MiB | 46.0 MiB | 8.7 / 10.3 ms | 8.6 / 9.8 ms | 0.8 / 0.9 s |
+| 1,000 | 358.6 s | 359 ms | 256 MiB | 91.9 MiB | 8.7 / 10.0 ms | 8.6 / 10.2 ms | 0.6 / 0.7 s |
 
 The 1,000-document run completed without a crash, an out-of-memory event, data
 corruption, or a missed expected result. The decrease in sampled peak RSS between
@@ -27,8 +27,8 @@ The content-free machine-readable reports contain the exact values:
 - Host: Apple M4 Pro, 12 logical CPUs, 24 GiB RAM, arm64
 - Docker server: 29.4.0, with 11.73 GiB visible to containers
 - Image platform: `linux/arm64`
-- Image digest: `sha256:418995fd391cbd791eede565f00ed78eef11988d7799740a3879828e9ef57009`
-- Application commit: `3f50620f0af86b031ac7d4bb0c7ecc41e4540a90`
+- Image digest: `sha256:a5eac1da7ccff63373c14ed0b880dc58deae45c2b7e63cd483cb3784e2144c6c`
+- Image revision: `5eb25d34c75851ea215544cbad58cadbef6a7c6c`
 
 Each size ran alone in a newly created, dedicated Docker volume. Documents were
 uploaded sequentially, and the runner waited for each document to reach `ready`
@@ -39,7 +39,8 @@ for the warm pass and required its document in the top five results.
 RSS is the largest of 21 `docker stats --no-stream` samples taken during ingestion
 plus startup and post-restart samples; it is a sampled peak rather than a continuous
 maximum. Storage is allocated space reported by `du -sk /app/data`. Restart timing
-includes Docker's 10-second health-check cadence, then one successful search.
+is measured by polling `/health` directly (not Docker's own healthcheck
+cadence) until it succeeds, then running one successful search.
 
 The fixtures are intentionally small and uniform. PDFs, DOCX files, large files,
 long documents with many chunks, concurrent uploads, and different host hardware
