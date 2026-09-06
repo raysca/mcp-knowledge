@@ -1,4 +1,4 @@
-import { AppError, errorBody, newId } from "@mcp-knowledge/core";
+import { AppError, errorBody, logger, newId, serializeError } from "@mcp-knowledge/core";
 
 // ponytail: a client-supplied header can contain characters (CRLF, control chars) that make
 // `new Response()` throw when we echo it back — verified: crashes every request that reaches
@@ -24,7 +24,7 @@ export function errorResponse(error: unknown, requestId: string): Response {
   if (error instanceof AppError) {
     return json(errorBody(error, requestId), error.status, requestId);
   }
-  console.error(error);
+  logger.error({ event: "http_error", requestId, error: serializeError(error) });
   return json(
     errorBody(
       { code: "INTERNAL_ERROR", message: "Internal server error." },

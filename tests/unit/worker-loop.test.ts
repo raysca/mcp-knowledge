@@ -256,4 +256,43 @@ describe("startWorkerLoop archive extraction", () => {
       stop();
     }
   });
+
+  test("logs claim/extraction failures as single JSON lines", async () => {
+    let claims = 0;
+    let resolveLogged!: () => void;
+    const logged = new Promise<void>((resolve) => { resolveLogged = resolve; });
+    const original = console.error;
+    let captured = "";
+    console.error = ((line: string) => {
+      captured = line;
+      resolveLogged();
+    }) as typeof console.error;
+
+    const repo = {
+      async claimArchiveImport() {
+        claims += 1;
+        throw new Error("archive claim exploded");
+      },
+      async claimJob() {
+        return null;
+      },
+    } as unknown as KnowledgeRepository;
+    const ingestion = { async process() {} } as unknown as IngestionService;
+    const archives = { async extract() {} };
+
+    const stop = startWorkerLoop({ repo, ingestion, archives, leaseMs: 60_000, ingestionTimeoutMs: 60_000 });
+    try {
+      await Promise.race([
+        logged,
+        Bun.sleep(500).then(() => { throw new Error("claim failure was not logged"); }),
+      ]);
+      const record = JSON.parse(captured);
+      expect(record.level).toBe("error");
+      expect(record.event).toBe("worker_archive_claim_failed");
+      expect(record.error.message).toBe("archive claim exploded");
+    } finally {
+      stop();
+      console.error = original;
+    }
+  });
 });

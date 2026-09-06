@@ -1,6 +1,6 @@
 import { AppError, publicIngestionFailure, type IngestionService } from "@mcp-knowledge/core";
 import type { ArchiveImportService, KnowledgeRepository } from "@mcp-knowledge/core";
-import { newId } from "@mcp-knowledge/core";
+import { logger, newId, serializeError } from "@mcp-knowledge/core";
 
 export function startWorkerLoop(input: {
   repo: KnowledgeRepository;
@@ -25,7 +25,7 @@ export function startWorkerLoop(input: {
         try {
           archiveImport = await input.repo.claimArchiveImport(workerId, input.leaseMs);
         } catch (error) {
-          console.error("worker loop: claimArchiveImport failed", error);
+          logger.error({ event: "worker_archive_claim_failed", error: serializeError(error) });
         }
         if (archiveImport) {
           const operation = new AbortController();
@@ -37,7 +37,11 @@ export function startWorkerLoop(input: {
             ]);
             if (result === "stopped") break;
           } catch (error) {
-            console.error("worker loop: archive extraction failed", archiveImport.id, error);
+            logger.error({
+              event: "worker_archive_extraction_failed",
+              archiveId: archiveImport.id,
+              error: serializeError(error),
+            });
           } finally {
             if (activeOperation === operation) activeOperation = undefined;
           }
@@ -49,7 +53,7 @@ export function startWorkerLoop(input: {
       try {
         job = await input.repo.claimJob(workerId, input.leaseMs);
       } catch (error) {
-        console.error("worker loop: claimJob failed", error);
+        logger.error({ event: "worker_job_claim_failed", error: serializeError(error) });
         await Bun.sleep(250);
         continue;
       }
