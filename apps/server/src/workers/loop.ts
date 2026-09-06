@@ -11,6 +11,11 @@ export function startWorkerLoop(input: {
   const workerId = newId("job").replace("job_", "wkr_");
   let stopped = false;
   let activeTimeout: ReturnType<typeof setTimeout> | undefined;
+  let activeOperation: AbortController | undefined;
+  let resolveStopped!: (value: "stopped") => void;
+  const stopRequested = new Promise<"stopped">((resolve) => {
+    resolveStopped = resolve;
+  });
 
   async function tick() {
     while (!stopped) {
@@ -28,21 +33,32 @@ export function startWorkerLoop(input: {
         continue;
       }
       try {
+        const operation = new AbortController();
+        activeOperation = operation;
         let timeout!: ReturnType<typeof setTimeout>;
         const deadline = new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
             if (activeTimeout === timeout) activeTimeout = undefined;
-            reject(new AppError("INGESTION_TIMEOUT", "ingestion timed out"));
+            const error = new AppError("INGESTION_TIMEOUT", "ingestion timed out");
+            reject(error);
+            operation.abort(error);
           }, input.ingestionTimeoutMs);
           activeTimeout = timeout;
         });
         try {
-          await Promise.race([input.ingestion.process(job), deadline]);
+          const result = await Promise.race([
+            input.ingestion.process(job, operation.signal).then(() => "completed" as const),
+            deadline,
+            stopRequested,
+          ]);
+          if (result === "stopped") break;
         } finally {
           clearTimeout(timeout);
           if (activeTimeout === timeout) activeTimeout = undefined;
+          if (activeOperation === operation) activeOperation = undefined;
         }
       } catch (error) {
+        if (stopped) break;
         try {
           const failure = publicIngestionFailure(error);
           const publicError = new Error(`${failure.code}: ${failure.message}`);
@@ -61,10 +77,13 @@ export function startWorkerLoop(input: {
 
   void tick();
   return () => {
+    if (stopped) return;
     stopped = true;
+    resolveStopped("stopped");
     if (activeTimeout !== undefined) {
       clearTimeout(activeTimeout);
       activeTimeout = undefined;
     }
+    activeOperation?.abort(new DOMException("Worker loop stopped.", "AbortError"));
   };
 }

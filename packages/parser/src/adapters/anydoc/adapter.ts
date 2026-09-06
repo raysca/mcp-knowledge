@@ -18,8 +18,11 @@ export class AnyDocParser implements DocumentParser {
     data: Blob;
     filename: string;
     mimeType?: string;
+    signal?: AbortSignal;
   }): Promise<NormalizedDocument> {
+    input.signal?.throwIfAborted();
     const bytes = new Uint8Array(await input.data.arrayBuffer());
-    return parseInSubprocess(bytes, this.timeoutMs);
+    input.signal?.throwIfAborted();
+    return parseInSubprocess(bytes, this.timeoutMs, undefined, input.signal);
   }
 }

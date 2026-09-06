@@ -146,4 +146,41 @@ describe("startWorkerLoop", () => {
       stop();
     }
   });
+
+  test("does not persist a late ingestion rejection after stop", async () => {
+    let claims = 0;
+    let failCalls = 0;
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let rejectProcess!: (error: Error) => void;
+    const repo = {
+      async claimJob() {
+        claims += 1;
+        return claims === 1 ? job() : null;
+      },
+      async failJob() {
+        failCalls += 1;
+        return { ...job(), status: "failed" as const };
+      },
+      async setDocumentStatus() {},
+    } as unknown as KnowledgeRepository;
+    const ingestion = {
+      async process() {
+        resolveStarted();
+        return new Promise<void>((_resolve, reject) => {
+          rejectProcess = reject;
+        });
+      },
+    } as unknown as IngestionService;
+
+    const stop = startWorkerLoop({ repo, ingestion, leaseMs: 60_000, ingestionTimeoutMs: 60_000 });
+    await started;
+    stop();
+    rejectProcess(new Error("late parser failure"));
+    await Bun.sleep(20);
+
+    expect(failCalls).toBe(0);
+  });
 });

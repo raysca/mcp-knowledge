@@ -35,4 +35,15 @@ describe("parser subprocess isolation", () => {
     expect(doc.blocks.length).toBeGreaterThan(0);
     expect(Date.now() - start).toBeLessThan(10_000);
   });
+
+  test("aborting a parse kills and awaits its owned subprocess", async () => {
+    const hanging = fileURLToPath(new URL("../fixtures/hanging-parser-entry.ts", import.meta.url));
+    const signal = AbortSignal.timeout(50);
+    const start = Date.now();
+
+    await expect(
+      parseInSubprocess(new Uint8Array([1, 2, 3]), 1_000, hanging, signal),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(Date.now() - start).toBeLessThan(2_000);
+  }, 5_000);
 });

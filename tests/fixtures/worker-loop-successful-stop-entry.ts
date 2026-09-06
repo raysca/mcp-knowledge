@@ -60,10 +60,19 @@ if (scenario === "claim-race") {
     resolveSettled = resolve;
   });
   const ingestion = {
-    async process() {
+    async process(_job: IngestionJob, signal?: AbortSignal) {
       if (scenario === "failure") throw new Error("parse failed");
       resolveSettled();
       if (scenario === "in-flight-stop") return new Promise<void>(() => {});
+      if (scenario === "handle-backed-stop") {
+        return new Promise<void>((resolve) => {
+          const handle = setInterval(() => undefined, 60_000);
+          signal?.addEventListener("abort", () => {
+            clearInterval(handle);
+            resolve();
+          }, { once: true });
+        });
+      }
     },
   } as unknown as IngestionService;
 

@@ -77,7 +77,7 @@ describe("createShutdownHandler", () => {
     }
   }, 10_000);
 
-  test.each(["failure", "in-flight-stop"])("%s releases its ingestion deadline", async (scenario) => {
+  test.each(["failure", "in-flight-stop", "handle-backed-stop"])("%s releases its ingestion deadline", async (scenario) => {
     const child = Bun.spawn(
       ["bun", join(import.meta.dir, "../fixtures/worker-loop-successful-stop-entry.ts"), scenario],
       { stdout: "pipe", stderr: "pipe" },

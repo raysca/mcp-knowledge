@@ -41,7 +41,8 @@ export class IngestionService {
     },
   ) {}
 
-  async process(job: IngestionJob): Promise<void> {
+  async process(job: IngestionJob, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const doc = await this.repo.getDocument(job.documentId);
     if (!doc) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
     const revision = await this.repo.getRevision(job.revisionId);
@@ -58,7 +59,9 @@ export class IngestionService {
       data: blob,
       filename: doc.originalFilename,
       mimeType: doc.mimeType,
+      signal,
     });
+    signal?.throwIfAborted();
     const extractBytes = new TextEncoder().encode(JSON.stringify(normalized)).byteLength;
     if (extractBytes > this.limits.MAX_EXTRACT_BYTES) {
       throw new AppError("DOCUMENT_RESOURCE_LIMIT", "Extracted text exceeds MAX_EXTRACT_BYTES.", 400);

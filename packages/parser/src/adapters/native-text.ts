@@ -86,8 +86,11 @@ export class NativeTextParser implements DocumentParser {
     data: Blob;
     filename: string;
     mimeType?: string;
+    signal?: AbortSignal;
   }): Promise<NormalizedDocument> {
+    input.signal?.throwIfAborted();
     const text = await input.data.text();
+    input.signal?.throwIfAborted();
     const ext = extOf(input.filename);
     let blocks: DocumentBlock[];
     if (ext === "html" || ext === "htm" || input.mimeType === "text/html") {

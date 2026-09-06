@@ -16,6 +16,7 @@ export type DocumentParser = {
     data: Blob;
     filename: string;
     mimeType?: string;
+    signal?: AbortSignal;
   }): Promise<NormalizedDocument>;
 };
 
