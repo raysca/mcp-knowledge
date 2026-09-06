@@ -7,7 +7,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import type { SourceFileOutcome } from "@mcp-knowledge/core";
+import type { ArchiveImportEntry, SourceFileOutcome } from "@mcp-knowledge/core";
 
 export const collections = sqliteTable("collections", {
   id: text("id").primaryKey(),
@@ -133,6 +133,36 @@ export const ingestionJobs = sqliteTable(
   (table) => [
     index("ingestion_jobs_status_created_idx").on(table.status, table.createdAt),
     index("ingestion_jobs_revision_id_idx").on(table.revisionId),
+  ],
+);
+
+export const archiveImports = sqliteTable(
+  "archive_imports",
+  {
+    id: text("id").primaryKey(),
+    collectionId: text("collection_id").references(() => collections.id, {
+      onDelete: "set null",
+    }),
+    originalFilename: text("original_filename").notNull(),
+    metadata: text("metadata", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'`),
+    state: text("state").notNull(),
+    stagingStorageKey: text("staging_storage_key"),
+    lockedBy: text("locked_by"),
+    lockedAt: integer("locked_at", { mode: "timestamp_ms" }),
+    entries: text("entries", { mode: "json" })
+      .$type<ArchiveImportEntry[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    error: text("error"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    index("archive_imports_state_created_idx").on(table.state, table.createdAt),
   ],
 );
 

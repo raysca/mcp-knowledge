@@ -43,6 +43,15 @@ export async function migrateLibsql(url: string): Promise<void> {
     ).text();
     await client.executeMultiple(sql);
   }
+  const archiveImports = await client.execute(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'archive_imports'",
+  );
+  if (archiveImports.rows.length === 0) {
+    const sql = await Bun.file(
+      new URL("../../../drizzle/0005_archive_imports.sql", import.meta.url),
+    ).text();
+    await client.executeMultiple(sql);
+  }
   client.close();
 }
 
