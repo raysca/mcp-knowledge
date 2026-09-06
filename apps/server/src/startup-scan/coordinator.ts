@@ -1,5 +1,6 @@
-import type { SourceImportService, SourceProcessResult } from "@mcp-knowledge/core";
+import type { SourceImportService, SourceProcessResult, Logger } from "@mcp-knowledge/core";
 import type { KnowledgeRepository } from "@mcp-knowledge/core";
+import { logger as defaultLogger } from "@mcp-knowledge/core";
 import type { LocalDirectorySource, SourceCandidate } from "./local-directory-source.ts";
 
 type StartupScanCounts = {
@@ -91,7 +92,7 @@ export class StartupIngestionCoordinator {
       createSource?: () => Promise<ScanSource>;
       createImporter?: (source: ScanSource, signal: AbortSignal) => ScanImporter;
       disabledReason?: Exclude<StartupScanStatus["disabledReason"], null>;
-      logger?: Pick<Console, "info" | "error">;
+      logger?: Pick<Logger, "info" | "error">;
     },
   ) {
     this.value = disabledStatus(input.disabledReason ?? null);
@@ -131,7 +132,7 @@ export class StartupIngestionCoordinator {
     let source: ScanSource;
     let sourceId: string | undefined;
     let startedLog = false;
-    const logger = this.input.logger ?? console;
+    const logger = this.input.logger ?? defaultLogger;
 
     try {
       logger.info({ event: "startup_scan_started" });
@@ -239,7 +240,7 @@ export class StartupIngestionCoordinator {
     }
   }
 
-  private logCompletion(logger: Pick<Console, "info" | "error">, sourceId?: string): void {
+  private logCompletion(logger: Pick<Logger, "info" | "error">, sourceId?: string): void {
     const startedAt = this.value.startedAt ? Date.parse(this.value.startedAt) : Date.now();
     logger.info({
       event: "startup_scan_completed",

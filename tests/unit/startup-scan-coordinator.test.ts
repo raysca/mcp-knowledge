@@ -467,4 +467,30 @@ describe("StartupIngestionCoordinator", () => {
       expect.objectContaining({ state: "scanning", completedAt: null, error: null }),
     );
   });
+
+  test("without an injected logger, defaults to the shared JSON logger", async () => {
+    const repo = new FakeRepository();
+    const coordinator = new StartupIngestionCoordinator({
+      repo,
+      maxFiles: 10,
+      createSource: async () => source([]),
+      createImporter: () => importer({}),
+    });
+
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = ((line: string) => { lines.push(line); }) as typeof console.log;
+    try {
+      coordinator.start();
+      await waitForTerminal(coordinator);
+    } finally {
+      console.log = original;
+    }
+
+    expect(lines.length).toBeGreaterThan(0);
+    const started = lines.map((line) => JSON.parse(line)).find((r) => r.event === "startup_scan_started");
+    expect(started).toBeDefined();
+    expect(started.level).toBe("info");
+    expect(typeof started.timestamp).toBe("string");
+  });
 });

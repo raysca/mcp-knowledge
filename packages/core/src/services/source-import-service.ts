@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { AppError } from "../errors.ts";
 import { newId } from "../ids.ts";
+import { logger, serializeError } from "../logger.ts";
 import { extensionOf, isAllowedUpload, sniffMime } from "../mime.ts";
 import type { SourceFileOutcome, SourceFileRecord } from "../domain/source.ts";
 import type { BlobStore, KnowledgeRepository } from "../ports.ts";
@@ -434,7 +435,7 @@ export class SourceImportService {
     try {
       await this.input.blobs.delete(storageKey);
     } catch (error) {
-      console.warn("Failed to remove staged source blob.", error);
+      logger.warn({ event: "staged_blob_cleanup_failed", error: serializeError(error) });
     }
   }
 
@@ -447,7 +448,12 @@ export class SourceImportService {
       try {
         await this.input.blobs.delete(key);
       } catch (error) {
-        console.warn("Failed to remove retired source blob.", { retiredDocumentId, key, error });
+        logger.warn({
+          event: "retired_blob_cleanup_failed",
+          retiredDocumentId,
+          key,
+          error: serializeError(error),
+        });
       }
     }
   }

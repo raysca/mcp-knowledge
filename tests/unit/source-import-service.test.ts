@@ -140,6 +140,7 @@ class FakeBlobs implements Pick<BlobStore, "delete" | "put"> {
   puts: { key: string; data: Blob }[] = [];
   deleted: string[] = [];
   putError: Error | undefined;
+  deleteError: Error | undefined;
 
   async put(key: string, data: Blob): Promise<void> {
     if (this.putError) throw this.putError;
@@ -147,6 +148,7 @@ class FakeBlobs implements Pick<BlobStore, "delete" | "put"> {
   }
 
   async delete(key: string): Promise<void> {
+    if (this.deleteError) throw this.deleteError;
     this.deleted.push(key);
   }
 }
@@ -676,6 +678,27 @@ describe("SourceImportService", () => {
     ]);
   });
 
+  test("logs a structured warning when removing a staged blob fails", async () => {
+    const { repo, blobs, service } = setup();
+    ownCurrentPath(repo);
+    repo.commitError = new Error("transaction failed");
+    blobs.deleteError = new Error("blob store unavailable");
+
+    let captured = "";
+    const original = console.warn;
+    console.warn = ((line: string) => { captured = line; }) as typeof console.warn;
+    try {
+      await service.process({ relativePath: "current.txt" }, "cycle-1");
+    } finally {
+      console.warn = original;
+    }
+
+    const record = JSON.parse(captured);
+    expect(record.level).toBe("warn");
+    expect(record.event).toBe("staged_blob_cleanup_failed");
+    expect(record.error.message).toBe("blob store unavailable");
+  });
+
   test("removes a staged blob when an import commit becomes a duplicate during a race", async () => {
     const { repo, blobs, service } = setup();
     repo.commitResult = {
@@ -710,6 +733,35 @@ describe("SourceImportService", () => {
     });
 
     expect(blobs.deleted).toEqual(["old-original", "old-normalized"]);
+  });
+
+  test("logs a structured warning when removing a retired blob fails", async () => {
+    const { repo, blobs, service } = setup();
+    const owned = ownCurrentPath(repo);
+    repo.documentBlobKeys.set(owned.id, ["old-original"]);
+    repo.commitResult = {
+      outcome: "imported",
+      documentId: "doc_new",
+      jobId: "job_new",
+      retiredDocumentId: owned.id,
+    };
+    blobs.deleteError = new Error("blob store unavailable");
+
+    let captured = "";
+    const original = console.warn;
+    console.warn = ((line: string) => { captured = line; }) as typeof console.warn;
+    try {
+      await service.process({ relativePath: "current.txt" }, "cycle-1");
+    } finally {
+      console.warn = original;
+    }
+
+    const record = JSON.parse(captured);
+    expect(record.level).toBe("warn");
+    expect(record.event).toBe("retired_blob_cleanup_failed");
+    expect(record.retiredDocumentId).toBe(owned.id);
+    expect(record.key).toBe("old-original");
+    expect(record.error.message).toBe("blob store unavailable");
   });
 });
 
