@@ -193,12 +193,11 @@ local application backed by Ollama, LM Studio, llama.cpp, or another local
 model runtime; alternatively, call the REST API from an application you
 control.
 
-```mermaid
-flowchart LR
-    D[Private documents] --> K["MCP Knowledge<br/>local retrieval"]
-    K --> A["Local application<br/>MCP or REST"]
-    A --> L["Local LLM runtime<br/>Ollama / LM Studio / llama.cpp"]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/private-retrieval-stack-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/diagrams/private-retrieval-stack-light.svg">
+  <img src="assets/diagrams/private-retrieval-stack-light.svg" alt="Documents move through local parsing, chunking, embeddings, storage, and hybrid retrieval before reaching the dashboard, playground, MCP, REST, and an optional local language model.">
+</picture>
 
 When each component runs on the same device and binds to loopback, document
 content does not need to leave the machine. This is an available deployment
@@ -228,25 +227,19 @@ large or unusual files.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph In["Ingest"]
-        U[Upload]
-        L[Watched folder]
-        R[Public URL]
-    end
-    In --> P["Parse<br/>AnyDoc + native text"]
-    P --> C["Chunk and embed<br/>local MiniLM"]
-    C --> D[("libSQL<br/>vector + FTS5")]
-    D --> H{"Hybrid search<br/>RRF"}
-    H --> REST[REST]
-    H --> MCP[MCP]
-    H --> UI[Dashboard and playground]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/hybrid-ranking-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/diagrams/hybrid-ranking-light.svg">
+  <img src="assets/diagrams/hybrid-ranking-light.svg" alt="A query splits into local vector and lexical search, whose ranks are combined by reciprocal-rank fusion into inspectable ranked chunks.">
+</picture>
 
 Parsing runs in a subprocess and embedding runs in a worker thread, isolating
 the HTTP server from malformed documents and model work. Document originals,
 normalized text, chunks, and indexes remain in the local data volume.
+
+Vector and lexical candidates run in parallel. Reciprocal-rank fusion combines
+their positions into the final order without an opaque reranker; the Playground
+shows both source ranks, the fusion score, provenance, matched terms, and timing.
 
 ## Import a local directory
 

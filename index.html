@@ -394,58 +394,27 @@
     flex-wrap: wrap;
   }
 
-  /* ---------------- pipeline ---------------- */
-  .pipeline {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-  }
-  .stage {
-    background: var(--surface);
+  /* ---------------- system diagrams ---------------- */
+  .system-diagram { margin: 42px 0 0; }
+  .explain > .system-diagram { grid-column: 1 / -1; }
+  .system-diagram-frame {
+    overflow-x: auto;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px 18px 22px;
-    position: relative;
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--bg-alt);
+    scrollbar-color: #343b46 var(--bg-alt);
   }
-  .stage .n {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    color: var(--accent);
-    letter-spacing: 0.1em;
+  .system-diagram img {
     display: block;
-    margin-bottom: 12px;
+    width: 100%;
+    min-width: 720px;
+    height: auto;
   }
-  .stage h3 { font-size: 0.98rem; font-weight: 600; margin: 0 0 7px; letter-spacing: -0.01em; }
-  .stage p { margin: 0; font-size: 0.87rem; color: var(--muted); line-height: 1.55; }
-  .stage code { color: var(--muted); }
-
-  .fanout {
-    margin-top: 20px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 18px 22px;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    flex-wrap: wrap;
-  }
-  .fanout .label {
-    font-family: var(--mono);
-    font-size: 0.74rem;
+  .system-diagram figcaption {
+    margin-top: 12px;
     color: var(--dim);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .surfaces { display: flex; gap: 10px; flex-wrap: wrap; }
-  .surface-chip {
     font-family: var(--mono);
-    font-size: 0.76rem;
-    color: var(--text);
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    padding: 7px 12px;
+    font-size: 0.72rem;
   }
 
   /* ---------------- features ---------------- */
@@ -549,7 +518,6 @@
     .hero { grid-template-columns: 1fr; gap: 44px; padding: 72px 24px 64px; }
     .explain, .quick, .scope { grid-template-columns: 1fr; gap: 36px; }
     .features { grid-template-columns: repeat(2, 1fr); }
-    .pipeline { grid-template-columns: repeat(2, 1fr); }
     .stats { grid-template-columns: repeat(2, 1fr); }
     .stat:nth-child(2) { border-right: none; }
     .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
@@ -559,7 +527,7 @@
     section { padding: 68px 0; }
   }
   @media (max-width: 600px) {
-    .features, .pipeline { grid-template-columns: 1fr; }
+    .features { grid-template-columns: 1fr; }
     .stats { grid-template-columns: 1fr; }
     .stat { border-right: none; border-bottom: 1px solid var(--line); }
     .stat:last-child { border-bottom: none; }
@@ -739,6 +707,19 @@
           <span>score = Σ 1 / (60 + rank)</span>
         </div>
       </div>
+      <figure class="system-diagram">
+        <div class="system-diagram-frame" tabindex="0" role="region" aria-label="Scrollable hybrid ranking diagram">
+          <img
+            src="assets/diagrams/hybrid-ranking-dark.svg"
+            alt="A query splits into local vector and lexical search, whose ranks are combined by reciprocal-rank fusion into inspectable ranked chunks."
+            width="1200"
+            height="620"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+        <figcaption>On smaller screens, scroll horizontally to follow the complete ranking path.</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -751,38 +732,19 @@
         <p>Nothing in this path calls a hosted model, and the costly parsing and embedding stages are isolated from the process serving requests.</p>
       </div>
 
-      <div class="pipeline">
-        <div class="stage">
-          <span class="n">01</span>
-          <h3>Ingest</h3>
-          <p>Upload via the dashboard or REST, point at a URL, or watch a folder. A <code>.zip</code> is unpacked and every allowlisted file inside gets indexed.</p>
+      <figure class="system-diagram">
+        <div class="system-diagram-frame" tabindex="0" role="region" aria-label="Scrollable private retrieval architecture diagram">
+          <img
+            src="assets/diagrams/private-retrieval-stack-dark.svg"
+            alt="Documents move through local parsing, chunking, embeddings, storage, and hybrid retrieval before reaching the dashboard, playground, MCP, REST, and an optional local language model."
+            width="1200"
+            height="650"
+            loading="lazy"
+            decoding="async"
+          />
         </div>
-        <div class="stage">
-          <span class="n">02</span>
-          <h3>Parse in a subprocess</h3>
-          <p>AnyDoc handles PDF, Word, PowerPoint, Excel, HTML, and Markdown in a spawned process — a hostile upload crashes it, not the server.</p>
-        </div>
-        <div class="stage">
-          <span class="n">03</span>
-          <h3>Embed in a worker</h3>
-          <p>Chunks are embedded locally by a vendored MiniLM model on a worker thread, so a bulk import never stalls in-flight searches.</p>
-        </div>
-        <div class="stage">
-          <span class="n">04</span>
-          <h3>Store &amp; fuse</h3>
-          <p>One libSQL file holds vectors and the FTS5 index. Both sides run in parallel per query and fuse into a single ranked list.</p>
-        </div>
-      </div>
-
-      <div class="fanout">
-        <span class="label">One corpus, four surfaces</span>
-        <div class="surfaces">
-          <span class="surface-chip">Dashboard</span>
-          <span class="surface-chip">Playground</span>
-          <span class="surface-chip">MCP /mcp</span>
-          <span class="surface-chip">REST /api/v1</span>
-        </div>
-      </div>
+        <figcaption>Everything inside the boundary runs locally; URL ingestion contacts only the source you request.</figcaption>
+      </figure>
     </div>
   </section>
 

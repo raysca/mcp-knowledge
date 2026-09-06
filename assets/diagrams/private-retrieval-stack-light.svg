@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
+  <title id="title">Your private retrieval stack</title>
+  <desc id="desc">Documents are parsed, chunked, embedded, stored, and searched locally. The same corpus is available through the dashboard, playground, MCP, and REST, and can be paired with a local application and local language model.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8Z" fill="#667085"/></marker>
+    <style>
+      .sans{font-family:Inter,ui-sans-serif,system-ui,sans-serif}.mono{font-family:"JetBrains Mono",ui-monospace,monospace}.title{fill:#17202b;font-size:30px;font-weight:600;letter-spacing:-.6px}.sub{fill:#5e6876;font-size:15px}.cap{fill:#087f6d;font-size:12px}.node-title{fill:#17202b;font-size:17px;font-weight:600}.copy{fill:#5e6876;font-size:13px}.detail{fill:#667085;font-size:12px}.line{stroke:#667085;stroke-width:2;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1200" height="650" rx="18" fill="#f7f9fb"/>
+  <text class="sans title" x="48" y="54">Your private retrieval stack</text>
+  <text class="sans sub" x="48" y="82">One local service takes documents from raw files to inspectable, ranked context.</text>
+  <rect x="32" y="112" width="1136" height="482" rx="16" fill="#ffffff" stroke="#cbd2da" stroke-width="1.5" stroke-dasharray="6 7"/>
+  <rect x="54" y="101" width="112" height="23" rx="6" fill="#e8f7f3" stroke="#7cc8ba"/>
+  <text class="mono cap" x="69" y="117">RUNS LOCALLY</text>
+  <path class="line" d="M280 266H326"/><path class="line" d="M540 266H586"/><path class="line" d="M800 266H846"/>
+  <g transform="translate(66 162)"><text class="mono cap" y="0">BRING KNOWLEDGE IN</text><rect y="22" width="214" height="164" rx="12" fill="#f2f5f7" stroke="#d8dee5"/><text class="sans node-title" x="20" y="56">Documents</text><text class="sans copy" x="20" y="83">Files and folders</text><text class="sans copy" x="20" y="107">Dashboard uploads</text><text class="sans copy" x="20" y="131">ZIP archives</text><text class="sans copy" x="20" y="155">Public URL*</text></g>
+  <g transform="translate(326 162)"><text class="mono cap" y="0">UNDERSTAND</text><rect y="22" width="214" height="164" rx="12" fill="#f2f5f7" stroke="#d8dee5"/><text class="sans node-title" x="20" y="56">Parse and prepare</text><text class="sans copy" x="20" y="86">Parse in a subprocess</text><text class="sans copy" x="20" y="112">Split into useful chunks</text><text class="sans copy" x="20" y="138">Embed with local MiniLM</text><text class="mono detail" x="20" y="164">no hosted model call</text></g>
+  <g transform="translate(586 162)"><text class="mono cap" y="0">KEEP</text><rect y="22" width="214" height="164" rx="12" fill="#f2f5f7" stroke="#d8dee5"/><text class="sans node-title" x="20" y="56">Local data volume</text><text class="sans copy" x="20" y="86">Original files + metadata</text><text class="sans copy" x="20" y="112">Parsed chunks</text><text class="sans copy" x="20" y="138">Vectors + FTS5</text><text class="mono detail" x="20" y="164">one libSQL database</text></g>
+  <g transform="translate(846 162)"><text class="mono cap" y="0">RETRIEVE</text><rect y="22" width="288" height="164" rx="12" fill="#e8f7f3" stroke="#7cc8ba"/><text class="sans node-title" x="20" y="56">Explainable hybrid search</text><text class="sans copy" x="20" y="86">Vector meaning + exact language</text><text class="sans copy" x="20" y="112">Reciprocal-rank fusion</text><text class="sans copy" x="20" y="138">Ranks, provenance, and timing</text><text class="mono detail" x="20" y="164">same result path everywhere</text></g>
+  <path d="M990 348V393H221" stroke="#667085" stroke-width="2" fill="none"/>
+  <path d="M221 393V431" class="line"/><path d="M555 393V431" class="line"/>
+  <text class="mono cap" x="66" y="415">USE THE SAME CORPUS</text>
+  <g transform="translate(66 435)"><rect width="310" height="104" rx="12" fill="#f2f5f7" stroke="#d8dee5"/><text class="sans node-title" x="20" y="39">Dashboard + Playground</text><text class="sans copy" x="20" y="65">Manage, test, and inspect retrieval</text><text class="mono detail" x="20" y="86">browser UX included</text></g>
+  <g transform="translate(400 435)"><rect width="310" height="104" rx="12" fill="#f2f5f7" stroke="#d8dee5"/><text class="sans node-title" x="20" y="39">MCP + REST</text><text class="sans copy" x="20" y="65">Connect clients and applications</text><text class="mono detail" x="20" y="86">one retrieval contract</text></g>
+  <path class="line" d="M710 487H756"/>
+  <g transform="translate(756 435)"><rect width="378" height="104" rx="12" fill="#f2f5f7" stroke="#d8dee5"/><text class="sans node-title" x="20" y="39">Your application + optional local LLM</text><text class="sans copy" x="20" y="65">Ollama · LM Studio · llama.cpp</text><text class="mono detail" x="20" y="86">answer generation stays your choice</text></g>
+  <circle cx="69" cy="571" r="3" fill="#087f6d"/><text class="sans detail" x="80" y="576">No hosted model or external database required. *URL ingestion requests the source you provide.</text>
+</svg>
