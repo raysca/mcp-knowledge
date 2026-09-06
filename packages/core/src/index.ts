@@ -5,6 +5,12 @@ export {
   type IngestionFailureCode,
   type PublicIngestionFailure,
 } from "./ingestion-failure.ts";
+export {
+  PUBLIC_ARCHIVE_FAILURES,
+  publicArchiveFailure,
+  type ArchiveFailureCode,
+  type PublicArchiveFailure,
+} from "./archive-failure.ts";
 export { ID_PREFIXES, newId, uuidv7, type IdPrefix } from "./ids.ts";
 export { CollectionService } from "./services/collection-service.ts";
 export { IngestionService, errorCodeOf, normalizedStorageKey } from "./services/ingestion-service.ts";
@@ -39,6 +45,12 @@ export type {
   SourceFileRecord,
   SourceScanCycle,
 } from "./domain/source.ts";
+export type {
+  ArchiveImport,
+  ArchiveImportEntry,
+  ArchiveImportEntryOutcome,
+  ArchiveImportState,
+} from "./domain/archive.ts";
 export type {
   BlobStore,
   EmbeddedChunk,

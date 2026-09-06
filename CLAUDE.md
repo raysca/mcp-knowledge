@@ -38,7 +38,7 @@ These are the constraints most likely to be violated by a generic implementation
 - Retrieval: hybrid = vector + lexical fused with **Reciprocal Rank Fusion**, `k=60`, 50 candidates per side by default (§34–36).
 - Lexical: libSQL FTS5 / Postgres `tsvector` with `simple`/`unicode61` tokenizers — **no stemming** (breaks SKUs/error codes) (§34).
 - Chunking: target 180 / min 64 / max 220 tokens, 32 overlap, bounded by the embedding model's 256-token limit; boundaries prefer heading → paragraph → table → list → sentence → token (§21).
-- Chunk/document/job IDs are prefixed UUIDv7 strings (`doc_`, `rev_`, `chk_`, `col_`, `job_`, `key_`, `wh_`, `evt_`, `req_`) — see §110 for the full table.
+- Chunk/document/job IDs are prefixed UUIDv7 strings (`doc_`, `rev_`, `chk_`, `col_`, `job_`, `key_`, `wh_`, `evt_`, `req_`, `arc_` for archive imports) — see §110 for the full table.
 - Deployment profiles: `APP_PROFILE=local` (libSQL, local filesystem, embedded worker) vs `APP_PROFILE=server` (Postgres, S3, distributed-safe job locking) — same application code, different config (§94–95).
 - Jobs use the database itself as the durable queue (`SELECT ... FOR UPDATE SKIP LOCKED` / libSQL `BEGIN IMMEDIATE`), no Redis (§19).
 - Resource limits, timeouts, and error codes are enumerated precisely in §98 and §15.2 — reuse those names/values (e.g. `MAX_UPLOAD_BYTES=67108864`, `DOCUMENT_NEEDS_OCR`) rather than inventing new ones.
