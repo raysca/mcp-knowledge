@@ -2,17 +2,12 @@
 
 # Document Knowledge
 
-**Give your documents a card catalog, not a black box.**
+**Self-hosted document search over MCP and REST — built on Bun.**
 
-Self-hosted document search over MCP and REST. Ingest PDFs, docs, and pages;
-get back explainable hybrid retrieval — every hit traceable to its vector
-rank, lexical rank, and fusion score.
+Point it at your docs. Search them locally with explainable hybrid
+retrieval, or plug straight into Claude, Cursor, or any MCP client.
 
-### 🔑 No API key. No hosted AI. Ever.
-
-Embeddings run locally on a vendored model — not a proxy, not a "bring your
-own key" screen. `docker compose up -d` and it works, offline, before you've
-typed a single credential.
+🔑 No API key · ⚡ One Bun process · 🔍 Built-in search playground · 📦 Bulk `.zip` ingestion
 
 [**Live overview →**](https://raysca.github.io/mcp-knowledge/) ·
 [Quick start](#quick-start) ·
@@ -28,21 +23,29 @@ typed a single credential.
 
 ---
 
+## What you get
+
+- **No API key, ever** — embeddings run locally on a vendored model.
+- **Built on Bun** — one process, one container, fast cold start.
+- **Search playground built in** — compare hybrid/vector/lexical results live at `/playground`.
+- **Bulk ingestion** — drop a folder or a `.zip`; every file inside gets parsed and indexed.
+- **Explainable ranking** — every hit ships its vector rank, lexical rank, and fusion score.
+- **MCP-native** — a Streamable HTTP endpoint sits next to REST, same origin, same port.
+- **Any format** — PDF, Word, PowerPoint, Excel, HTML, Markdown, and more via [AnyDoc](https://github.com/firecrawl/anydoc).
+
 ## Why not just use X?
 
-|  | **Document Knowledge** | Hosted RAG APIs<br/>(OpenAI Assistants, etc.) | LangChain / LlamaIndex | Self-hosted "chat with docs" apps |
+|  | **Document Knowledge** | Hosted RAG APIs | LangChain / LlamaIndex | Self-hosted chat-with-docs |
 | --- | :---: | :---: | :---: | :---: |
-| Needs a paid LLM API key | **No** | Yes | Usually | Usually |
-| MCP-native endpoint | **Yes** | No | DIY | Rare |
-| Explainable ranking (vector + lexical + fusion score, per hit) | **Yes** | No | DIY | Rare |
-| Runs as one container | **Yes** | N/A — hosted | No — you assemble the stack | Usually several services |
-| Broad format support out of the box | **Yes** (via AnyDoc) | Varies | DIY | Varies |
-| Your documents never leave your machine | **Yes** | No | Depends how you wire it | Usually |
+| Paid LLM API key | **No** | Yes | Usually | Usually |
+| MCP-native | **Yes** | No | DIY | Rare |
+| Explainable ranking | **Yes** | No | DIY | Rare |
+| One container | **Yes** | N/A | No | Rarely |
+| Data stays on your machine | **Yes** | No | Depends | Usually |
 
-It's not that the alternatives are bad — a hosted API is faster to a demo,
-and LangChain/LlamaIndex are more flexible if you're building something
-bespoke. This is for when you want the retrieval *service* already built,
-running on your own hardware, with nothing to sign up for.
+Hosted APIs win on demo speed; LangChain/LlamaIndex win on flexibility. This
+wins when you want the retrieval service already built, on your own
+hardware, nothing to sign up for.
 
 ## How it works
 
@@ -63,48 +66,16 @@ flowchart LR
     H --> UI[Dashboard]
 ```
 
-Parsing runs in a spawned subprocess and embedding in a worker thread, so a
-hostile or malformed upload can't take the serving process down. Nothing in
-this pipeline calls out to a hosted model.
-
-## Any format you throw at it
-
-Document parsing is powered by [AnyDoc](https://github.com/firecrawl/anydoc),
-the same document-conversion engine behind Firecrawl — so Word, PowerPoint,
-Excel, CSV, PDF, OpenDocument, RTF, and EPUB files are all handled by one
-battle-tested native parser instead of a pile of format-specific hacks.
-Native HTML, Markdown, JSON, XML, and plain text are parsed directly without
-AnyDoc at all. Drop in a `.zip` and every allowlisted file inside it gets
-extracted and ingested the same way. See
-[docs/supported-formats.md](docs/supported-formats.md) for the full list and
-size limits.
-
-## Why this exists
-
-Most "chat with your docs" tools hand you a paragraph and a shrug. This one
-treats every search result like a library index card: where it came from,
-why it ranked where it did, and which retrieval method actually found it.
-Run it entirely on your own hardware — the embeddings are local, the
-database is a single file, and nothing leaves your machine unless you tell
-it to.
-
-- **Explainable, not a black box.** Vector rank, lexical rank, and the fused
-  score ship with every hit, over both REST and MCP.
-- **MCP-native.** A Streamable HTTP MCP endpoint sits next to the REST API on
-  the same origin — point Claude, Cursor, or any MCP client at it directly.
-- **One container, one process.** `Bun.serve()` handles the dashboard, REST,
-  and MCP together; libSQL and the local filesystem hold everything.
-- **A real recovery story.** Originals are canonical; every chunk and
-  embedding can be rebuilt from them. Backup and restore are documented, not
-  promised.
+A subprocess parses, a worker thread embeds — a bad upload can't take the
+server down, and nothing here calls out to a hosted model.
 
 Not sure this is what you're looking for? See [What this is not](#what-this-is-not).
 
 ## Contents
 
+- [What you get](#what-you-get)
 - [Why not just use X?](#why-not-just-use-x)
 - [How it works](#how-it-works)
-- [Any format you throw at it](#any-format-you-throw-at-it)
 - [Prerequisite](#prerequisite)
 - [Quick start](#quick-start)
 - [First upload and search](#first-upload-and-search)
@@ -156,12 +127,16 @@ curl -sS -X POST http://127.0.0.1:3000/api/v1/search \
   -d '{"query":"a phrase from the document","mode":"hybrid","limit":8}'
 ```
 
-Poll `GET /api/v1/documents/:id` or watch the Jobs page until the document
-reaches `ready`. The dashboard's `/playground` page lets you try hybrid,
-vector, and lexical search side by side and inspect why each result ranked
-where it did. Uploading a `.zip` extracts and ingests every allowlisted file
-inside it. See [docs/supported-formats.md](docs/supported-formats.md) for
-accepted file types and size limits.
+Poll `GET /api/v1/documents/:id` or watch the Jobs page until it reaches
+`ready`.
+
+- **Playground:** `/playground` runs hybrid, vector, and lexical search side
+  by side and shows why each result ranked where it did.
+- **Bulk ingest:** upload a `.zip` instead of one file and every allowlisted
+  file inside it gets extracted and indexed.
+
+See [docs/supported-formats.md](docs/supported-formats.md) for accepted file
+types and size limits.
 
 ## MCP
 
