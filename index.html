@@ -3,411 +3,524 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Document Knowledge — a self-hosted MCP knowledge base</title>
-<meta name="description" content="Ingest your documents, index them locally, and search them with explainable hybrid retrieval — over MCP and REST. One Docker container. No hosted AI required." />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='14' fill='%233d5a80'/%3E%3Crect x='24' y='22' width='52' height='8' fill='%23eef1f5'/%3E%3Crect x='24' y='40' width='52' height='8' fill='%23eef1f5'/%3E%3Crect x='24' y='58' width='30' height='8' fill='%23b42318'/%3E%3C/svg%3E" />
+<title>MCP Knowledge — private document retrieval for local RAG</title>
+<meta name="description" content="Self-hosted document retrieval for local RAG and MCP. Run local embeddings, explainable hybrid search, REST, and a playground in one Docker container." />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#0B0D10" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="MCP Knowledge — private document retrieval for local RAG" />
+<meta property="og:description" content="Private document retrieval for local RAG and MCP. Local embeddings, explainable hybrid search, one Docker container." />
+<meta property="og:url" content="https://raysca.github.io/mcp-knowledge/" />
+<meta name="twitter:card" content="summary" />
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230B0D10'/%3E%3Crect x='24' y='26' width='52' height='7' rx='3.5' fill='%23E6E9EF'/%3E%3Crect x='24' y='46' width='52' height='7' rx='3.5' fill='%23E6E9EF'/%3E%3Crect x='24' y='66' width='28' height='7' rx='3.5' fill='%234ADEC0'/%3E%3C/svg%3E" />
+
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
   rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
 />
 <style>
   :root {
-    --ink: #1e2a3b;
-    --ink-soft: #46536a;
-    --navy: #3d5a80;
-    --navy-deep: #2c4361;
-    --paper: #eef1f5;
-    --card: #fbfbf8;
-    --shelf: #dbe3ee;
-    --rule: #b7c3d3;
-    --slate: #5b6b80;
-    --stamp: #b42318;
-    --font-display: "Fraunces", ui-serif, Georgia, serif;
-    --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
-    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+    --bg: #0b0d10;
+    --bg-alt: #0e1116;
+    --surface: #14171c;
+    --surface-2: #191d24;
+    --line: #232830;
+    --line-soft: #1a1e25;
+    --text: #e6e9ef;
+    --muted: #8a94a6;
+    --dim: #5d6674;
+    --accent: #4adec0;
+    --accent-soft: rgba(74, 222, 192, 0.12);
+    --accent-line: rgba(74, 222, 192, 0.32);
+    --warn: #ff7b72;
+    --sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --radius: 10px;
   }
 
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 
   body {
     margin: 0;
-    background: var(--paper);
-    background-image:
-      linear-gradient(var(--rule) 1px, transparent 1px);
-    background-size: 100% 44px;
-    color: var(--ink);
-    font-family: var(--font-sans);
-    line-height: 1.55;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
-  a { color: var(--navy-deep); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
 
-  .wrap {
-    max-width: 1080px;
-    margin: 0 auto;
-    padding: 0 28px;
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 3px;
   }
 
-  /* ---------- nav ---------- */
+  code { font-family: var(--mono); font-size: 0.88em; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    letter-spacing: 0;
+    color: var(--accent);
+    margin: 0 0 16px;
+  }
+
+  h2.h {
+    font-size: clamp(1.6rem, 3vw, 2.1rem);
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+
+  .section-head { max-width: 60ch; margin: 0 0 44px; }
+  .section-head p { color: var(--muted); margin: 0; font-size: 1.02rem; }
+
+  section { padding: 88px 0; border-top: 1px solid var(--line-soft); scroll-margin-top: 76px; }
+
+  /* grid children must be allowed to shrink below their content width,
+     otherwise a wide <pre> blows the column out instead of scrolling */
+  .hero > *, .explain > *, .quick > * { min-width: 0; }
+
+  /* ---------------- nav ---------------- */
   header.site {
     position: sticky;
     top: 0;
-    z-index: 20;
-    backdrop-filter: blur(6px);
-    background: rgba(238, 241, 245, 0.88);
-    border-bottom: 1px solid var(--rule);
+    z-index: 30;
+    background: rgba(11, 13, 16, 0.82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line-soft);
   }
   .nav {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 0;
+    height: 62px;
   }
   .wordmark {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.15rem;
-    color: var(--ink);
-    text-decoration: none;
-  }
-  .wordmark .tag {
-    font-family: var(--font-mono);
-    font-size: 0.62rem;
-    letter-spacing: 0.14em;
-    color: var(--navy);
-    border: 1px solid var(--navy);
-    border-radius: 3px;
-    padding: 2px 6px;
-    transform: translateY(-2px);
-  }
-  .nav-links { display: flex; gap: 22px; align-items: center; }
-  .nav-links a {
-    text-decoration: none;
-    color: var(--ink-soft);
-    font-size: 0.92rem;
-  }
-  .nav-links a:hover { color: var(--navy-deep); }
-  .btn-ghost {
-    border: 1px solid var(--ink);
-    border-radius: 4px;
-    padding: 7px 14px !important;
-    color: var(--ink) !important;
-  }
-
-  /* ---------- hero ---------- */
-  .hero {
-    padding: 76px 0 60px;
-    display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: 48px;
+    display: inline-flex;
     align-items: center;
-  }
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--navy);
-    margin: 0 0 14px;
-  }
-  h1.display {
-    font-family: var(--font-display);
+    gap: 10px;
+    color: var(--text);
     font-weight: 600;
-    font-size: clamp(2.2rem, 4.4vw, 3.35rem);
-    line-height: 1.06;
+    font-size: 0.98rem;
     letter-spacing: -0.01em;
-    margin: 0 0 20px;
   }
-  h1.display em {
-    font-style: italic;
-    color: var(--navy-deep);
+  .wordmark:hover { text-decoration: none; }
+  .wordmark .glyph {
+    display: block;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background:
+      linear-gradient(transparent 22%, var(--text) 22% 36%, transparent 36% 52%,
+                      var(--text) 52% 66%, transparent 66% 82%, var(--accent) 82% 96%, transparent 96%);
+    background-color: var(--surface-2);
+    border: 1px solid var(--line);
   }
-  .lede {
-    font-size: 1.14rem;
-    color: var(--ink-soft);
-    max-width: 46ch;
-    margin: 0 0 30px;
-  }
-  .cta-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .nav-links { display: flex; align-items: center; gap: 26px; }
+  .nav-links a { color: var(--muted); font-size: 0.9rem; }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+  /* ---------------- buttons ---------------- */
   .btn {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 0.95rem;
-    text-decoration: none;
-    padding: 12px 20px;
-    border-radius: 4px;
+    font-family: var(--sans);
+    font-weight: 550;
+    font-size: 0.92rem;
+    padding: 11px 18px;
+    border-radius: 8px;
     border: 1px solid transparent;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
   }
-  .btn-primary { background: var(--navy-deep); color: #fff; }
-  .btn-primary:hover { background: var(--navy); }
-  .btn-secondary { border-color: var(--ink); color: var(--ink); }
-  .btn-secondary:hover { background: var(--shelf); }
-  .stars-note {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    color: var(--slate);
-  }
+  .btn:hover { text-decoration: none; }
+  .btn-primary { background: var(--accent); color: #062019; }
+  .btn-primary:hover { background: #63f0d3; }
+  .btn-secondary { border-color: var(--line); color: var(--text); background: var(--surface); }
+  .btn-secondary:hover { border-color: #38404c; background: var(--surface-2); }
+  .btn-sm { padding: 8px 14px; font-size: 0.86rem; }
 
-  /* ---------- catalog card: the signature element ---------- */
-  .card-stage {
-    position: relative;
-    display: flex;
-    justify-content: center;
-    perspective: 1200px;
-  }
-  .stamp {
-    position: absolute;
-    top: -18px;
-    right: 6px;
-    z-index: 3;
-    font-family: var(--font-mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.08em;
-    color: var(--stamp);
-    border: 2px solid var(--stamp);
-    border-radius: 999px;
-    padding: 6px 12px;
-    transform: rotate(9deg);
-    background: rgba(251, 251, 248, 0.9);
-    white-space: nowrap;
-  }
-  .catalog-card {
-    width: 100%;
-    max-width: 360px;
-    background: var(--card);
-    border: 1px solid var(--rule);
-    border-radius: 6px;
-    box-shadow: 0 22px 45px -24px rgba(30, 42, 59, 0.45);
-    padding: 22px 22px 18px;
-    transform: rotate(-1.5deg);
-    transition: transform 0.35s ease;
-  }
-  .card-stage:hover .catalog-card { transform: rotate(0deg) translateY(-4px); }
-  .catalog-card .callno {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    color: var(--navy);
-    letter-spacing: 0.06em;
-    margin-bottom: 10px;
-  }
-  .catalog-card h3 {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.08rem;
-    margin: 0 0 8px;
-  }
-  .catalog-card p.snippet {
-    font-size: 0.9rem;
-    color: var(--ink-soft);
-    margin: 0 0 16px;
-    border-left: 2px solid var(--shelf);
-    padding-left: 10px;
-  }
-  .rank-grid {
+  /* ---------------- hero ---------------- */
+  .hero {
+    padding: 104px 24px 84px;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0;
-    border-top: 1px dashed var(--rule);
-    padding-top: 12px;
-  }
-  .rank-grid div { text-align: center; }
-  .rank-grid dt {
-    font-family: var(--font-mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--slate);
-    margin-bottom: 4px;
-  }
-  .rank-grid dd {
-    margin: 0;
-    font-family: var(--font-mono);
-    font-size: 1rem;
-    font-weight: 500;
-    color: var(--ink);
-  }
-  .catalog-card footer {
-    margin-top: 14px;
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    color: var(--slate);
-    display: flex;
-    justify-content: space-between;
-  }
-
-  /* ---------- shared section chrome ---------- */
-  section { padding: 64px 0; }
-  section.divider-top { border-top: 1px solid var(--rule); }
-  .section-head { max-width: 62ch; margin: 0 0 40px; }
-  .section-head .eyebrow { margin-bottom: 10px; }
-  h2.display {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: clamp(1.6rem, 3vw, 2.1rem);
-    margin: 0 0 12px;
-    letter-spacing: -0.01em;
-  }
-  .section-head p { color: var(--ink-soft); margin: 0; font-size: 1.02rem; }
-
-  /* ---------- not a black box ---------- */
-  .explain {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 48px;
+    grid-template-columns: 1.02fr 0.98fr;
+    gap: 56px;
     align-items: center;
+    border-top: none;
   }
-  .explain-list { list-style: none; margin: 0; padding: 0; }
-  .explain-list li {
+  h1 {
+    font-size: clamp(2.25rem, 4.6vw, 3.4rem);
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    font-weight: 650;
+    margin: 0 0 22px;
+  }
+  .lede {
+    font-size: 1.1rem;
+    line-height: 1.62;
+    color: var(--muted);
+    max-width: 52ch;
+    margin: 0 0 32px;
+  }
+  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .meta-row {
     display: flex;
-    gap: 14px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--shelf);
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin-top: 28px;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--dim);
   }
-  .explain-list li:last-child { border-bottom: none; }
-  .explain-list .mark {
-    font-family: var(--font-mono);
-    color: var(--navy);
-    font-size: 0.85rem;
-    padding-top: 2px;
-  }
-  .explain-list strong { display: block; font-size: 0.98rem; margin-bottom: 2px; }
-  .explain-list span.desc { color: var(--ink-soft); font-size: 0.92rem; }
+  .meta-row span { display: inline-flex; align-items: center; }
 
-  /* ---------- how it works ---------- */
-  .steps {
+  /* ---------------- terminal ---------------- */
+  .terminal {
+    background: var(--bg-alt);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
+  }
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--surface);
+  }
+  .terminal-bar i {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #2b3038; display: block;
+  }
+  .terminal-bar b {
+    margin-left: 8px;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--dim);
+  }
+  .terminal pre {
+    margin: 0;
+    padding: 18px 20px;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.75;
+    color: #cdd4e0;
+    overflow-x: auto;
+  }
+  .terminal .c { color: var(--dim); }
+  .terminal .p { color: var(--accent); }
+  .terminal .s { color: #f0a875; }
+  .terminal .k { color: #8ab4f8; }
+  .terminal .ok { color: var(--accent); }
+
+  /* ---------------- stats ---------------- */
+  .stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0;
-    counter-reset: step;
-    border-top: 1px solid var(--rule);
-    border-left: 1px solid var(--rule);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
   }
-  .step {
-    counter-increment: step;
-    border-right: 1px solid var(--rule);
-    border-bottom: 1px solid var(--rule);
-    padding: 22px 20px 26px;
-    background: var(--card);
-    position: relative;
-  }
-  .step::before {
-    content: counter(step, decimal-leading-zero);
-    font-family: var(--font-mono);
-    color: var(--navy);
-    font-size: 0.78rem;
-    letter-spacing: 0.08em;
+  .stat { padding: 24px 26px; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: none; }
+  .stat .num {
+    font-family: var(--mono);
+    font-size: 1.55rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--text);
     display: block;
-    margin-bottom: 14px;
+    line-height: 1.2;
   }
-  .step h3 {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.02rem;
-    margin: 0 0 8px;
+  .stat .num em { font-style: normal; font-size: 0.98rem; color: var(--muted); }
+  .stat .lbl {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.82rem;
+    color: var(--muted);
   }
-  .step p { margin: 0; font-size: 0.9rem; color: var(--ink-soft); }
+  .stat-note {
+    margin: 16px 0 0;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--dim);
+    line-height: 1.7;
+  }
 
-  /* ---------- feature grid ---------- */
-  .grid-features {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-    background: var(--rule);
-    border: 1px solid var(--rule);
-  }
-  .feature {
-    background: var(--card);
-    padding: 26px 24px;
-  }
-  .feature h3 {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.02rem;
-    margin: 0 0 8px;
-  }
-  .feature p { margin: 0; font-size: 0.9rem; color: var(--ink-soft); }
+  /* ---------------- explain / result demo ---------------- */
+  .explain { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 56px; align-items: start; }
+  .explain-list { list-style: none; margin: 28px 0 0; padding: 0; }
+  .explain-list li { padding: 14px 0; border-top: 1px solid var(--line-soft); }
+  .explain-list li strong { display: block; font-size: 0.95rem; font-weight: 600; margin-bottom: 3px; }
+  .explain-list li span { color: var(--muted); font-size: 0.9rem; }
 
-  /* ---------- quick start ---------- */
-  .terminal {
-    background: var(--ink);
-    color: #eef1f5;
-    border-radius: 6px;
-    padding: 22px 24px;
-    font-family: var(--font-mono);
-    font-size: 0.86rem;
-    overflow-x: auto;
-    white-space: pre;
-    line-height: 1.65;
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
   }
-  .terminal .muted { color: #8fa0b8; }
-  .terminal .accent { color: #f0a875; }
-  .quick-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 40px; align-items: start; }
-  .quick-grid ul { padding-left: 18px; margin: 18px 0 0; color: var(--ink-soft); font-size: 0.92rem; }
-  .quick-grid li { margin-bottom: 8px; }
-
-  /* ---------- scope / honesty ---------- */
-  .scope {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 40px;
+  .panel-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-alt);
   }
-  .scope-col h3 {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
+  .query {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mode-chip {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    border-radius: 6px;
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+  .hit { padding: 18px 20px; border-bottom: 1px solid var(--line-soft); }
+  .hit:last-child { border-bottom: none; }
+  .hit-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .hit-src { font-family: var(--mono); font-size: 0.76rem; color: var(--accent); }
+  .hit-rank { font-family: var(--mono); font-size: 0.72rem; color: var(--dim); }
+  .hit p {
     margin: 0 0 14px;
+    font-size: 0.9rem;
+    color: var(--muted);
+    border-left: 2px solid var(--line);
+    padding-left: 12px;
   }
-  .scope-col.yes h3 { color: var(--navy-deep); }
-  .scope-col.no h3 { color: var(--stamp); }
-  .scope-col ul { margin: 0; padding: 0; list-style: none; }
-  .scope-col li {
-    padding: 8px 0;
-    border-bottom: 1px dotted var(--rule);
-    font-size: 0.93rem;
-    color: var(--ink-soft);
+  .hit p mark { background: var(--accent-soft); color: var(--text); padding: 0 2px; border-radius: 2px; }
+  .ranks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .rank {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 9px;
   }
-
-  /* ---------- footer ---------- */
-  footer.site {
-    border-top: 1px solid var(--rule);
-    padding: 40px 0 56px;
-  }
-  .footer-row {
+  .rank b { color: var(--text); font-weight: 500; }
+  .rank.win { border-color: var(--accent-line); background: var(--accent-soft); }
+  .rank.win b { color: var(--accent); }
+  .panel-foot {
+    padding: 12px 20px;
+    background: var(--bg-alt);
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--dim);
     display: flex;
     justify-content: space-between;
+    gap: 12px;
     flex-wrap: wrap;
-    gap: 24px;
-  }
-  .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
-  .footer-links a { font-size: 0.88rem; color: var(--ink-soft); text-decoration: none; }
-  .footer-links a:hover { color: var(--navy-deep); }
-  .colophon {
-    font-family: var(--font-mono);
-    font-size: 0.74rem;
-    color: var(--slate);
-    margin-top: 22px;
   }
 
-  @media (max-width: 860px) {
-    .hero, .explain, .quick-grid, .scope { grid-template-columns: 1fr; }
-    .steps { grid-template-columns: repeat(2, 1fr); }
-    .grid-features { grid-template-columns: 1fr; }
-    .nav-links a:not(.btn-ghost) { display: none; }
-    .card-stage { margin-top: 20px; }
+  /* ---------------- pipeline ---------------- */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .stage {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 18px 22px;
+    position: relative;
+  }
+  .stage .n {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    display: block;
+    margin-bottom: 12px;
+  }
+  .stage h3 { font-size: 0.98rem; font-weight: 600; margin: 0 0 7px; letter-spacing: -0.01em; }
+  .stage p { margin: 0; font-size: 0.87rem; color: var(--muted); line-height: 1.55; }
+  .stage code { color: var(--muted); }
+
+  .fanout {
+    margin-top: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .fanout .label {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .surfaces { display: flex; gap: 10px; flex-wrap: wrap; }
+  .surface-chip {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 7px 12px;
+  }
+
+  /* ---------------- features ---------------- */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .feature {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px 22px;
+    transition: border-color 0.16s ease;
+  }
+  .feature:hover { border-color: #333b46; }
+  .feature h3 { font-size: 0.98rem; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .feature p { margin: 0; font-size: 0.89rem; color: var(--muted); line-height: 1.6; }
+
+  /* ---------------- quick start ---------------- */
+  .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .quick h3 {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 0 0 12px;
+    font-weight: 400;
+  }
+  .notes { margin: 22px 0 0; padding: 0; list-style: none; }
+  .notes li {
+    padding: 11px 0;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .notes li code { color: var(--text); }
+
+  /* ---------------- scope ---------------- */
+  .scope { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .scope-col {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 24px 24px 8px;
+  }
+  .scope-col h3 {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 6px;
+    font-weight: 400;
+  }
+  .scope-col.yes h3 { color: var(--accent); }
+  .scope-col.no h3 { color: var(--warn); }
+  .scope-col ul { margin: 0; padding: 0; list-style: none; }
+  .scope-col li {
+    padding: 13px 0;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.92rem;
+    color: var(--muted);
+  }
+
+  /* ---------------- closing ---------------- */
+  .closer {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background:
+      radial-gradient(120% 140% at 50% 0%, rgba(74, 222, 192, 0.07), transparent 62%),
+      var(--surface);
+    padding: 54px 32px;
+    text-align: center;
+  }
+  .closer h2 { font-size: clamp(1.5rem, 3vw, 2rem); letter-spacing: -0.025em; margin: 0 0 12px; font-weight: 600; }
+  .closer p { color: var(--muted); margin: 0 auto 26px; max-width: 46ch; }
+  .closer .cta-row { justify-content: center; }
+
+  /* ---------------- footer ---------------- */
+  footer.site { border-top: 1px solid var(--line-soft); padding: 40px 0 60px; }
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 26px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .foot-links { display: flex; gap: 22px; flex-wrap: wrap; }
+  .foot-links a { color: var(--muted); font-size: 0.88rem; }
+  .foot-links a:hover { color: var(--text); text-decoration: none; }
+  .colophon { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 14px 0 0; }
+
+  /* ---------------- responsive ---------------- */
+  @media (max-width: 940px) {
+    .hero { grid-template-columns: 1fr; gap: 44px; padding: 72px 24px 64px; }
+    .explain, .quick, .scope { grid-template-columns: 1fr; gap: 36px; }
+    .features { grid-template-columns: repeat(2, 1fr); }
+    .pipeline { grid-template-columns: repeat(2, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stat:nth-child(2) { border-right: none; }
+    .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+    .nav-links a.hide-sm { display: none; }
+    section { padding: 68px 0; }
+  }
+  @media (max-width: 600px) {
+    .features, .pipeline { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: 1fr; }
+    .stat { border-right: none; border-bottom: 1px solid var(--line); }
+    .stat:last-child { border-bottom: none; }
+    .terminal pre { font-size: 0.76rem; }
+    .quick { gap: 20px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; scroll-behavior: auto !important; }
+    * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
   }
 </style>
 </head>
@@ -415,220 +528,353 @@
 
 <header class="site">
   <div class="wrap nav">
-    <a class="wordmark" href="#">Document Knowledge <span class="tag">MCP</span></a>
-    <nav class="nav-links">
-      <a href="#how">How it works</a>
-      <a href="#features">Features</a>
-      <a href="#start">Quick start</a>
-      <a class="btn-ghost" href="https://github.com/raysca/mcp-knowledge">GitHub ↗</a>
+    <a class="wordmark" href="#top"><span class="glyph" aria-hidden="true"></span>MCP Knowledge</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a class="hide-sm" href="#ranking">Ranking</a>
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#fit">When to use it</a>
+      <a class="hide-sm" href="#start">Quick start</a>
+      <a class="btn btn-secondary btn-sm" href="https://github.com/raysca/mcp-knowledge">GitHub</a>
     </nav>
   </div>
 </header>
 
-<main>
+<main id="top">
+
+  <!-- ============ hero ============ -->
   <section class="hero wrap">
     <div>
-      <p class="eyebrow">Self-hosted · MCP-native · zero required AI vendor</p>
-      <h1 class="display">Give your documents a <em>card catalog</em>, not a black box.</h1>
+      <p class="eyebrow">Private retrieval for local RAG</p>
+      <h1>Your documents, searchable over MCP and REST.</h1>
       <p class="lede">
-        Point it at your PDFs, docs, and pages. It parses, chunks, and embeds
-        them locally, then answers questions over REST or MCP — and shows its
-        work for every result: vector rank, lexical rank, and the fused score
-        that put it there.
+        Run a private retrieval layer on hardware you control. MCP Knowledge parses
+        common document formats, embeds them locally, and returns explainable hybrid
+        results to MCP clients or your own applications. Your client decides how to
+        generate the answer.
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="#start">Run it in one command</a>
+        <a class="btn btn-primary" href="#start">Run the container</a>
         <a class="btn btn-secondary" href="https://github.com/raysca/mcp-knowledge">View source</a>
       </div>
-      <p class="stars-note" style="margin-top:18px;">docker compose up -d · MIT licensed · linux/amd64 + linux/arm64</p>
+      <p class="meta-row">
+        <span>No hosted model required</span>
+        <span>linux/amd64 + arm64</span>
+        <span>MIT licensed</span>
+        <span>v0.1</span>
+      </p>
     </div>
-    <div class="card-stage">
-      <span class="stamp">no api key</span>
-      <div class="catalog-card">
-        <p class="callno">§ returns-policy.html</p>
-        <h3>“Unopened hardware within 30 days”</h3>
-        <p class="snippet">…items may be returned unopened within 30 days of purchase for a full refund, provided the original receipt is presented…</p>
-        <dl class="rank-grid">
-          <div><dt>Vector</dt><dd>#2</dd></div>
-          <div><dt>Lexical</dt><dd>#1</dd></div>
-          <div><dt>Fusion</dt><dd>0.031</dd></div>
-        </dl>
-        <footer><span>hybrid · RRF k=60</span><span>final #1</span></footer>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <i></i><i></i><i></i><b>bash</b>
+      </div>
+<pre><span class="c"># Run the published multi-architecture image</span>
+<span class="p">$</span> docker run -d --name mcp-knowledge \
+    -p 127.0.0.1:3000:3000 \
+    -v mcp-knowledge-data:/app/data \
+    ghcr.io/raysca/mcp-knowledge:main
+<span class="ok">✔</span> mcp-knowledge  <span class="c">healthy</span>
+
+<span class="c"># index a document</span>
+<span class="p">$</span> curl -F <span class="s">"file=@handbook.pdf"</span> \
+    localhost:3000/api/v1/documents
+<span class="ok">→</span> doc_01j9c8x  <span class="c">ready</span>
+
+<span class="c"># ask it something</span>
+<span class="p">$</span> curl -d <span class="s">'{"query":"refunds"}'</span> \
+    localhost:3000/api/v1/search
+<span class="ok">→</span> 8 hits  <span class="c">9 ms</span>
+</pre>
+    </div>
+  </section>
+
+  <!-- ============ stats ============ -->
+  <section class="wrap" aria-label="Measured performance" style="padding-top:0;border-top:none;">
+    <div class="stats">
+      <div class="stat">
+        <span class="num">1,000</span>
+        <span class="lbl">documents indexed</span>
+      </div>
+      <div class="stat">
+        <span class="num">8.7 <em>ms</em></span>
+        <span class="lbl">median search latency</span>
+      </div>
+      <div class="stat">
+        <span class="num">256 <em>MiB</em></span>
+        <span class="lbl">peak resident memory</span>
+      </div>
+      <div class="stat">
+        <span class="num">0.69 <em>s</em></span>
+        <span class="lbl">restart to searchable</span>
+      </div>
+    </div>
+    <p class="stat-note">
+      Measured in Docker on an Apple M4 Pro (12 CPU, 12 GB allotted) across 1,000 documents.
+      Cold p95 search 10.0 ms. Method and the 100/500-document runs live in
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/docs/performance.md">docs/performance.md</a>.
+    </p>
+  </section>
+
+  <!-- ============ ranking ============ -->
+  <section id="ranking">
+    <div class="wrap explain">
+      <div>
+        <p class="eyebrow">Explainable by default</p>
+        <h2 class="h">Not a black box.</h2>
+        <p style="color:var(--muted);margin:0;">
+          Most retrieval systems hand back a paragraph and a shrug. Every hit here
+          carries its full provenance: which method found it, where it placed on each
+          side, and the fused score that decided the final order.
+        </p>
+        <ul class="explain-list">
+          <li>
+            <strong>Reciprocal Rank Fusion, k=60</strong>
+            <span>Vector and lexical candidates merged by a formula you can recompute by hand — no opaque reranking model in the middle.</span>
+          </li>
+          <li>
+            <strong>Traceable source location</strong>
+            <span>Chunks point back to a heading, page, or section of the original file, not just a filename.</span>
+          </li>
+          <li>
+            <strong>No stemming surprises</strong>
+            <span>Lexical search matches SKUs, error codes, and part numbers literally instead of quietly stemming them away.</span>
+          </li>
+          <li>
+            <strong>A playground to prove it</strong>
+            <span>The bundled dashboard runs hybrid, vector, and lexical side by side on your own documents.</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <div class="panel-bar">
+          <span class="query">refund policy for opened hardware</span>
+          <span class="mode-chip">hybrid</span>
+        </div>
+
+        <article class="hit">
+          <div class="hit-top">
+            <span class="hit-src">returns-policy.html › Returns</span>
+            <span class="hit-rank">final #1</span>
+          </div>
+          <p>…items may be returned <mark>unopened within 30 days</mark> of purchase for a full <mark>refund</mark>, provided the original receipt is presented…</p>
+          <div class="ranks">
+            <span class="rank">vector <b>#2</b></span>
+            <span class="rank">lexical <b>#1</b></span>
+            <span class="rank win">RRF <b>0.0325</b></span>
+          </div>
+        </article>
+
+        <article class="hit">
+          <div class="hit-top">
+            <span class="hit-src">warranty-terms.pdf › p.4</span>
+            <span class="hit-rank">final #2</span>
+          </div>
+          <p>…hardware showing signs of use is covered by the limited <mark>warranty</mark> rather than the return window, and is repaired or replaced at our discretion…</p>
+          <div class="ranks">
+            <span class="rank">vector <b>#1</b></span>
+            <span class="rank">lexical <b>#7</b></span>
+            <span class="rank">RRF <b>0.0313</b></span>
+          </div>
+        </article>
+
+        <div class="panel-foot">
+          <span>vector + lexical · 50 candidates per side</span>
+          <span>score = Σ 1 / (60 + rank)</span>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="divider-top" id="explain">
-    <div class="wrap explain">
-      <div>
-        <p class="eyebrow">Explainable by default</p>
-        <h2 class="display">Every answer comes with a citation slip.</h2>
-        <p style="color:var(--ink-soft); margin-top:12px;">
-          Most retrieval systems hand you a paragraph and a shrug. This one
-          treats every hit like a library index card: where it came from,
-          why it ranked where it did, and which retrieval method actually
-          found it — vector similarity, lexical full‑text, or both.
-        </p>
+  <!-- ============ how it works ============ -->
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">How it works</p>
+        <h2 class="h">From file to retrieval, entirely on your machine.</h2>
+        <p>Nothing in this path calls a hosted model, and the costly parsing and embedding stages are isolated from the process serving requests.</p>
       </div>
-      <ul class="explain-list">
-        <li>
-          <span class="mark">→</span>
-          <div><strong>Hybrid retrieval, fused honestly</strong><span class="desc">Vector and lexical candidates merged with Reciprocal Rank Fusion (k=60) — no silent reranking model in between.</span></div>
-        </li>
-        <li>
-          <span class="mark">→</span>
-          <div><strong>Source location, always</strong><span class="desc">Every chunk traces back to a heading, page, or section in the original file — not just a filename.</span></div>
-        </li>
-        <li>
-          <span class="mark">→</span>
-          <div><strong>No stemming surprises</strong><span class="desc">Lexical search matches SKUs, error codes, and part numbers literally, instead of quietly stemming them away.</span></div>
-        </li>
-        <li>
-          <span class="mark">→</span>
-          <div><strong>A playground for it</strong><span class="desc">The built-in dashboard runs hybrid, vector, and lexical side by side so you can see the difference on your own documents.</span></div>
-        </li>
+
+      <div class="pipeline">
+        <div class="stage">
+          <span class="n">01</span>
+          <h3>Ingest</h3>
+          <p>Upload via the dashboard or REST, point at a URL, or watch a folder. A <code>.zip</code> is unpacked and every allowlisted file inside gets indexed.</p>
+        </div>
+        <div class="stage">
+          <span class="n">02</span>
+          <h3>Parse in a subprocess</h3>
+          <p>AnyDoc handles PDF, Word, PowerPoint, Excel, HTML, and Markdown in a spawned process — a hostile upload crashes it, not the server.</p>
+        </div>
+        <div class="stage">
+          <span class="n">03</span>
+          <h3>Embed in a worker</h3>
+          <p>Chunks are embedded locally by a vendored MiniLM model on a worker thread, so a bulk import never stalls in-flight searches.</p>
+        </div>
+        <div class="stage">
+          <span class="n">04</span>
+          <h3>Store &amp; fuse</h3>
+          <p>One libSQL file holds vectors and the FTS5 index. Both sides run in parallel per query and fuse into a single ranked list.</p>
+        </div>
+      </div>
+
+      <div class="fanout">
+        <span class="label">One result set, three surfaces</span>
+        <div class="surfaces">
+          <span class="surface-chip">REST /api/v1</span>
+          <span class="surface-chip">MCP /mcp</span>
+          <span class="surface-chip">Dashboard + playground</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ features ============ -->
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">What you get</p>
+        <h2 class="h">Infrastructure, not another chat window.</h2>
+      </div>
+      <div class="features">
+        <div class="feature">
+          <h3>MCP-native</h3>
+          <p>A Streamable HTTP MCP endpoint sits beside the REST API on the same origin and port. Point Claude, Cursor, or any MCP client straight at it.</p>
+        </div>
+        <div class="feature">
+          <h3>No hosted model API key</h3>
+          <p>Embeddings run locally on a vendored MiniLM model. No OpenAI, Anthropic, or Cohere account is needed to ingest or search a single document.</p>
+        </div>
+        <div class="feature">
+          <h3>One process, one container</h3>
+          <p><code>Bun.serve()</code> serves dashboard, REST, and MCP together. libSQL and the local filesystem hold the rest — no external database to run.</p>
+        </div>
+        <div class="feature">
+          <h3>Isolated by design</h3>
+          <p>Parsing is a spawned subprocess, embedding is a worker thread. Malformed or hostile input can't take the serving process down with it.</p>
+        </div>
+        <div class="feature">
+          <h3>Rebuildable by design</h3>
+          <p>Originals are canonical. Chunks, embeddings, and indexes can all be regenerated from them, and backup/restore is documented rather than assumed.</p>
+        </div>
+        <div class="feature">
+          <h3>Multi-arch and gated</h3>
+          <p>Published for linux/amd64 and linux/arm64, smoke-tested offline on both architectures before any tag is pushed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ fit ============ -->
+  <section id="fit">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">A focused retrieval layer</p>
+        <h2 class="h">Choose it when control matters more than orchestration.</h2>
+        <p>MCP Knowledge is intentionally smaller than an agent framework and more complete than a retrieval library.</p>
+      </div>
+      <div class="scope">
+        <div class="scope-col yes">
+          <h3>Good fit</h3>
+          <ul>
+            <li>Your documents need to remain on hardware you control</li>
+            <li>MCP clients and REST applications need the same corpus</li>
+            <li>You want to inspect why each result was ranked</li>
+            <li>You want one container rather than a retrieval stack to assemble</li>
+          </ul>
+        </div>
+        <div class="scope-col no">
+          <h3>Use something else if</h3>
+          <ul>
+            <li>You need a chatbot or agent framework out of the box</li>
+            <li>You need multi-tenant or distributed deployment in v0.1</li>
+            <li>You need OCR for scanned PDFs</li>
+            <li>You need hosted-scale reranking or answer generation</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ quick start ============ -->
+  <section id="start">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Quick start</p>
+        <h2 class="h">Run the published image.</h2>
+        <p>Docker Engine or Docker Desktop is the only prerequisite — Bun, the parser, and the embedding model all ship inside the image.</p>
+      </div>
+
+      <div class="quick">
+        <div>
+          <h3>Run it</h3>
+          <div class="terminal">
+            <div class="terminal-bar"><i></i><i></i><i></i><b>bash</b></div>
+<pre><span class="p">$</span> docker run -d \
+  --name mcp-knowledge \
+  --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
+  -v mcp-knowledge-data:/app/data \
+  ghcr.io/raysca/mcp-knowledge:main
+
+<span class="p">$</span> curl --fail http://127.0.0.1:3000/health</pre>
+          </div>
+        </div>
+
+        <div>
+          <h3>Connect an MCP client</h3>
+          <div class="terminal">
+            <div class="terminal-bar"><i></i><i></i><i></i><b>mcp.json</b></div>
+<pre><span class="k">{</span>
+  <span class="s">"mcpServers"</span><span class="k">:</span> <span class="k">{</span>
+    <span class="s">"knowledge"</span><span class="k">:</span> <span class="k">{</span>
+      <span class="s">"url"</span><span class="k">:</span> <span class="s">"http://127.0.0.1:3000/mcp"</span>
+    <span class="k">}</span>
+  <span class="k">}</span>
+<span class="k">}</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <ul class="notes">
+        <li>Dashboard and playground at <code>http://127.0.0.1:3000</code>; MCP at <code>/mcp</code>, same origin, same port.</li>
+        <li>MCP tools are read-only — <code>search_documents</code>, <code>get_document</code>, <code>get_chunk</code>, <code>list_documents</code>, <code>list_collections</code>. Use REST to write.</li>
+        <li>The loopback-only setup above has no authentication. Set <code>DASHBOARD_PASSPHRASE</code> and generate an API key before exposing it to a LAN, proxy, or tunnel.</li>
+        <li>Everything persists in the <code>mcp-knowledge-data</code> named Docker volume. Removing the container does not remove its data.</li>
+        <li>The <code>main</code> tag tracks the current published build. Pin a versioned tag when the first release is published.</li>
       </ul>
     </div>
   </section>
 
-  <section class="divider-top" id="how">
+  <!-- ============ closer ============ -->
+  <section>
     <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">How it works</p>
-        <h2 class="display">From file to answer, entirely on your machine.</h2>
-      </div>
-      <div class="steps">
-        <div class="step">
-          <h3>Drop in a file</h3>
-          <p>Upload through the dashboard, REST API, a watched folder, or a URL. PDFs, Office docs, HTML, Markdown, and more — even a .zip of files.</p>
-        </div>
-        <div class="step">
-          <h3>Parse, chunk, embed</h3>
-          <p>A subprocess parses the document; a worker thread embeds it locally with MiniLM. A bad file can't take the server down.</p>
-        </div>
-        <div class="step">
-          <h3>Search hybrid</h3>
-          <p>Vector similarity and lexical full-text run in parallel and fuse into one ranked list — fast enough for a live playground.</p>
-        </div>
-        <div class="step">
-          <h3>Cite the source</h3>
-          <p>Every result over REST or MCP carries its rank breakdown and original location back to the caller.</p>
+      <div class="closer">
+        <h2>Private retrieval, ready for your client.</h2>
+        <p>One command to run it, one endpoint for MCP, and an inspectable ranking for every result.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/raysca/mcp-knowledge#quick-start">Read the setup guide</a>
+          <a class="btn btn-secondary" href="https://github.com/raysca/mcp-knowledge">Star on GitHub</a>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="divider-top" id="features">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">What you get</p>
-        <h2 class="display">Infrastructure, not another chat window.</h2>
-      </div>
-    </div>
-    <div class="wrap">
-      <div class="grid-features">
-        <div class="feature">
-          <h3>MCP-native</h3>
-          <p>A Streamable HTTP MCP endpoint sits next to the REST API on the same origin — point Claude, Cursor, or any MCP client at it directly.</p>
-        </div>
-        <div class="feature">
-          <h3>Zero required AI vendor</h3>
-          <p>Embeddings run locally via a vendored MiniLM model. No OpenAI, Anthropic, or Cohere key required to ingest or search a single document.</p>
-        </div>
-        <div class="feature">
-          <h3>One container, one process</h3>
-          <p>Bun.serve() handles the dashboard, REST, and MCP together. libSQL and the local filesystem hold everything — no external database to run.</p>
-        </div>
-        <div class="feature">
-          <h3>Isolated by design</h3>
-          <p>Parsing runs in a spawned subprocess; embedding runs in a worker thread. A hostile or malformed upload can't crash the serving process.</p>
-        </div>
-        <div class="feature">
-          <h3>Real recovery story</h3>
-          <p>Originals are canonical — every chunk and embedding can be rebuilt from them. Documented offline backup and restore, not a promise.</p>
-        </div>
-        <div class="feature">
-          <h3>Multi-arch, tagged, tested</h3>
-          <p>Published for linux/amd64 and linux/arm64, smoke-tested offline after build on both, before any tag is pushed.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="divider-top" id="start">
-    <div class="wrap quick-grid">
-      <div>
-        <p class="eyebrow">Quick start</p>
-        <h2 class="display">Running in about a minute.</h2>
-        <div class="terminal">
-<span class="muted"># prerequisite: Docker Engine or Docker Desktop, nothing else</span>
-docker compose up -d
-
-<span class="muted"># upload a document</span>
-curl -sS -X POST http://127.0.0.1:3000/api/v1/documents \
-  -F "file=@handbook.pdf"
-
-<span class="muted"># ask a question</span>
-curl -sS -X POST http://127.0.0.1:3000/api/v1/search \
-  -H <span class="accent">'content-type: application/json'</span> \
-  -d <span class="accent">'{"query":"refund policy","mode":"hybrid"}'</span>
-        </div>
-      </div>
-      <div>
-        <p style="color:var(--ink-soft);">No <code>DASHBOARD_PASSPHRASE</code> set means loopback-only, no-auth — fine for a machine only you can reach. Set one before exposing it any further.</p>
-        <ul>
-          <li>Dashboard and playground at <code>http://127.0.0.1:3000</code></li>
-          <li>MCP endpoint at <code>/mcp</code>, same origin, same port</li>
-          <li>Point <code>INGEST_DATA_DIR</code> at a folder to watch it continuously</li>
-          <li>Everything persists in one named Docker volume</li>
-        </ul>
-        <p style="margin-top:22px;"><a class="btn btn-secondary" href="https://github.com/raysca/mcp-knowledge#readme">Read the full setup guide →</a></p>
-      </div>
-    </div>
-  </section>
-
-  <section class="divider-top">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">Honest scope</p>
-        <h2 class="display">What this deliberately isn't.</h2>
-      </div>
-      <div class="scope">
-        <div class="scope-col yes">
-          <h3>This is</h3>
-          <ul>
-            <li>A document store with explainable hybrid search</li>
-            <li>An MCP server for retrieval, plus a REST API and dashboard</li>
-            <li>Self-hosted infrastructure with no external AI requirement</li>
-            <li>Single-tenant, local-first, one container to operate</li>
-          </ul>
-        </div>
-        <div class="scope-col no">
-          <h3>This is not</h3>
-          <ul>
-            <li>A chat app or an agent framework</li>
-            <li>Multi-tenant or built for distributed deployment (v0.1)</li>
-            <li>A hosted OCR pipeline — scanned PDFs need OCR first</li>
-            <li>A reranking or LLM-answer-generation layer</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </section>
 </main>
 
 <footer class="site">
-  <div class="wrap footer-row">
+  <div class="wrap foot">
     <div>
-      <a class="wordmark" href="#">Document Knowledge <span class="tag">MCP</span></a>
+      <a class="wordmark" href="#top"><span class="glyph" aria-hidden="true"></span>MCP Knowledge</a>
       <p class="colophon">MIT licensed · Docker-first · v0.1</p>
     </div>
-    <nav class="footer-links">
+    <nav class="foot-links" aria-label="Project links">
       <a href="https://github.com/raysca/mcp-knowledge">GitHub</a>
       <a href="https://github.com/raysca/mcp-knowledge#readme">README</a>
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/docs/supported-formats.md">Formats</a>
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/docs/troubleshooting.md">Troubleshooting</a>
       <a href="https://github.com/raysca/mcp-knowledge/blob/main/SECURITY.md">Security</a>
       <a href="https://github.com/raysca/mcp-knowledge/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/raysca/mcp-knowledge/blob/main/LICENSE">License</a>
     </nav>
   </div>
 </footer>
