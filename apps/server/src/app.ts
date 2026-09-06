@@ -99,6 +99,7 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
             source,
             repo,
             blobs,
+            archives,
             maxUploadBytes: env.MAX_UPLOAD_BYTES,
             signal,
           })

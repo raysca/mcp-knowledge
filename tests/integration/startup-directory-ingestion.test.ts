@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import AdmZip from "adm-zip";
 import type { KnowledgeRepository } from "../../packages/core/src/index.ts";
 import { createKnowledgeRepository } from "../../packages/db/src/index.ts";
 import { createApp } from "../../apps/server/src/app.ts";
@@ -102,6 +103,39 @@ describe("startup directory ingestion (end to end)", () => {
 
   async function docStatus(base: string, id: string): Promise<number> {
     return (await fetch(`${base}/api/v1/documents/${id}`)).status;
+  }
+
+  // Like runScan, but also waits for the worker to finish extracting any archive imports the
+  // scan staged - runScan only waits for the scan's own state to be terminal, which happens
+  // before the worker even claims a staged .zip.
+  async function runScanAndWaitForArchives(): Promise<{ status: StartupScanStatus; docs: Doc[] }> {
+    const env = loadEnv({
+      DATABASE_URL: `file:${dbPath}`,
+      STORAGE_PATH: blobsPath,
+      INGEST_DATA_DIR: sourceRoot,
+    });
+    const app = await createApp(env);
+    const server = Bun.serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
+    const base = `http://127.0.0.1:${server.port}`;
+    try {
+      app.startStartupScan();
+      const status = await waitForScan(base);
+      const terminal = new Set(["completed", "completed_with_errors", "failed"]);
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        const archives = (await fetch(`${base}/api/v1/archives?limit=20`).then((r) => r.json())) as {
+          items: Array<{ state: string }>;
+        };
+        if (archives.items.every((a) => terminal.has(a.state))) break;
+        await Bun.sleep(20);
+      }
+      const docs = (await fetch(`${base}/api/v1/documents?limit=100`).then((r) => r.json())) as {
+        items: Doc[];
+      };
+      return { status, docs: docs.items };
+    } finally {
+      app.stop();
+      server.stop(true);
+    }
   }
 
   test("imports a new file", async () => {
@@ -273,5 +307,43 @@ describe("startup directory ingestion (end to end)", () => {
     await withApp(async (base) => {
       expect(await docStatus(base, after!.id)).toBe(200);
     });
+  });
+
+  test("stages and extracts a zip found in the scanned directory", async () => {
+    const zip = new AdmZip();
+    zip.addFile("first.txt", Buffer.from("first entry\n", "utf8"));
+    zip.addFile("second.txt", Buffer.from("second entry\n", "utf8"));
+    await writeFile(join(sourceRoot, "bundle.zip"), zip.toBuffer());
+
+    const { status, docs } = await runScanAndWaitForArchives();
+    expect(status.state).toBe("completed");
+
+    const extracted = docs.filter(
+      (d) => d.originalFilename === "first.txt" || d.originalFilename === "second.txt",
+    );
+    expect(extracted).toHaveLength(2);
+    for (const doc of extracted) {
+      expect(["processing", "ready"]).toContain(doc.status);
+    }
+  });
+
+  test("does not restage an unchanged zip on a second scan", async () => {
+    const zip = new AdmZip();
+    zip.addFile("only.txt", Buffer.from("steady state\n", "utf8"));
+    await writeFile(join(sourceRoot, "steady.zip"), zip.toBuffer());
+
+    async function countArchives(): Promise<number> {
+      const res = (await withApp((base) =>
+        fetch(`${base}/api/v1/archives?limit=50`).then((r) => r.json()),
+      )) as { items: unknown[] };
+      return res.items.length;
+    }
+
+    await runScanAndWaitForArchives();
+    const firstCount = await countArchives();
+
+    const second = await runScanAndWaitForArchives();
+    expect(second.status.state).toBe("completed");
+    expect(await countArchives()).toBe(firstCount);
   });
 });
