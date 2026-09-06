@@ -16,6 +16,7 @@ export class LocalTransformersEmbedder implements Embedder {
   private readonly modelPath: string;
   private readonly workerUrl: URL;
   private stopped = false;
+  private workerGeneration = 0;
 
   constructor(input: { modelPath: string; workerUrl?: URL }) {
     this.modelPath = input.modelPath;
@@ -24,8 +25,10 @@ export class LocalTransformersEmbedder implements Embedder {
   }
 
   private spawn(url: URL) {
-    this.worker = new Worker(url);
-    this.worker.onmessage = (
+    const worker = new Worker(url);
+    const generation = ++this.workerGeneration;
+    this.worker = worker;
+    worker.onmessage = (
       event: MessageEvent<{ id: string; vectors?: number[][]; error?: string }>,
     ) => {
       const p = this.pending.get(event.data.id);
@@ -35,14 +38,16 @@ export class LocalTransformersEmbedder implements Embedder {
       else p.resolve(event.data.vectors ?? []);
     };
     const onFatal = (err: Error) => {
+      if (generation !== this.workerGeneration) return;
+      (worker as Worker & { unref(): void }).unref();
       for (const { reject } of this.pending.values()) reject(err);
       this.pending.clear();
       // ponytail: never Worker.terminate() after ONNX NAPI load — Bun 1.3.13 panics
       // (NAPI FATAL ERROR / SIGTRAP). Orphan the dead isolate and spawn a fresh Worker.
       if (!this.stopped) this.spawn(this.workerUrl);
     };
-    this.worker.onerror = (e) => onFatal(new Error(`embedding worker crashed: ${e.message}`));
-    this.worker.onmessageerror = () =>
+    worker.onerror = (e) => onFatal(new Error(`embedding worker crashed: ${e.message}`));
+    worker.onmessageerror = () =>
       onFatal(new Error("embedding worker sent an unparseable message"));
   }
 
