@@ -1,16 +1,67 @@
-# Document Knowledge MCP Service
+<div align="center">
 
-A self-hostable document knowledge service: ingest arbitrary documents, chunk
-and embed them locally, and search them with explainable hybrid (vector +
-lexical) retrieval over both a REST API and MCP. No hosted LLM required —
-embeddings run locally.
+# Document Knowledge
 
-## What this is not
+**Give your documents a card catalog, not a black box.**
 
-Not a chat app, not an agent framework, not a general document-management
-system. No hosted AI dependency, no multi-tenancy, no distributed deployment
-in v0.1 — see [CHANGELOG.md](CHANGELOG.md) for the full list of what's
-deliberately out of scope for this release.
+Self-hosted document search over MCP and REST. Ingest PDFs, docs, and pages;
+get back explainable hybrid retrieval — every hit traceable to its vector
+rank, lexical rank, and fusion score. One Docker container. No hosted AI
+required.
+
+[**Live overview →**](https://raysca.github.io/mcp-knowledge/) ·
+[Quick start](#quick-start) ·
+[MCP setup](#mcp) ·
+[Docs](#supporting-docs)
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-3d5a80.svg)](LICENSE)
+[![Build](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml/badge.svg)](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml)
+![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-3d5a80)
+![No hosted AI required](https://img.shields.io/badge/hosted%20AI-not%20required-b42318)
+
+</div>
+
+---
+
+## Why this exists
+
+Most "chat with your docs" tools hand you a paragraph and a shrug. This one
+treats every search result like a library index card: where it came from,
+why it ranked where it did, and which retrieval method actually found it.
+Run it entirely on your own hardware — the embeddings are local, the
+database is a single file, and nothing leaves your machine unless you tell
+it to.
+
+- **Explainable, not a black box.** Vector rank, lexical rank, and the fused
+  score ship with every hit, over both REST and MCP.
+- **MCP-native.** A Streamable HTTP MCP endpoint sits next to the REST API on
+  the same origin — point Claude, Cursor, or any MCP client at it directly.
+- **Zero required AI vendor.** Embeddings run locally via a vendored MiniLM
+  model. No OpenAI, Anthropic, or Cohere key needed to ingest or search a
+  single document.
+- **One container, one process.** `Bun.serve()` handles the dashboard, REST,
+  and MCP together; libSQL and the local filesystem hold everything.
+- **Isolated by design.** Parsing runs in a spawned subprocess and embedding
+  in a worker thread — a hostile or malformed upload can't take the server
+  down.
+- **A real recovery story.** Originals are canonical; every chunk and
+  embedding can be rebuilt from them. Backup and restore are documented, not
+  promised.
+
+Not sure this is what you're looking for? See [What this is not](#what-this-is-not).
+
+## Contents
+
+- [Prerequisite](#prerequisite)
+- [Quick start](#quick-start)
+- [First upload and search](#first-upload-and-search)
+- [MCP](#mcp)
+- [Exposing beyond loopback](#exposing-beyond-loopback)
+- [Import a local directory on startup](#import-a-local-directory-on-startup)
+- [Persistence, recovery, and removal](#persistence-recovery-and-removal)
+- [What this is not](#what-this-is-not)
+- [Supporting docs](#supporting-docs)
+- [Contributor workflow](#contributor-workflow-local-checkout-no-docker)
 
 ## Prerequisite
 
@@ -55,7 +106,8 @@ curl -sS -X POST http://127.0.0.1:3000/api/v1/search \
 Poll `GET /api/v1/documents/:id` or watch the Jobs page until the document
 reaches `ready`. The dashboard's `/playground` page lets you try hybrid,
 vector, and lexical search side by side and inspect why each result ranked
-where it did. See [docs/supported-formats.md](docs/supported-formats.md) for
+where it did. Uploading a `.zip` extracts and ingests every allowlisted file
+inside it. See [docs/supported-formats.md](docs/supported-formats.md) for
 accepted file types and size limits.
 
 ## MCP
@@ -142,8 +194,9 @@ volumes:
 `INGEST_DATA_MAX_DEPTH` defaults to `8` (`0` means root files only) and
 `INGEST_DATA_MAX_FILES` defaults to `10000`. Missing files do not remove
 documents; changed and renamed scanner-owned files replace the prior
-document. Progress appears on the Jobs page. URL ingest works the same way
-on demand: `POST /api/v1/documents/from-url` with `{ "url": "https://..." }`
+document. A `.zip` found by the scan is extracted the same way a manually
+uploaded one is. Progress appears on the Jobs page. URL ingest works the same
+way on demand: `POST /api/v1/documents/from-url` with `{ "url": "https://..." }`
 (loopback, RFC1918, link-local, and cloud-metadata targets are blocked,
 including through redirects).
 
@@ -162,6 +215,13 @@ For an offline backup or disaster recovery onto a fresh volume, see
 [docs/backup-and-restore.md](docs/backup-and-restore.md). Every derived
 artifact (normalized text, chunks, embeddings) can be rebuilt from the stored
 original via reindex; the original itself is what backup and restore protect.
+
+## What this is not
+
+Not a chat app, not an agent framework, not a general document-management
+system. No hosted AI dependency, no multi-tenancy, no distributed deployment
+in v0.1 — see [CHANGELOG.md](CHANGELOG.md) for the full list of what's
+deliberately out of scope for this release.
 
 ## Supporting docs
 
@@ -198,3 +258,7 @@ bun test
 `bun run release:check` runs the full release gate (typecheck, tests, CSS
 build, Compose validation, both-platform Docker smoke, scale-report
 validation) — the same gate `v0.1.0` was tagged against.
+
+## License
+
+[MIT](LICENSE) © Raymond Ottun
