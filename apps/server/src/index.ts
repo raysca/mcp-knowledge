@@ -1,3 +1,4 @@
+import { logger } from "@mcp-knowledge/core";
 import homepage from "./ui/index.html";
 import { createApp } from "./app.ts";
 import { loadEnv } from "./config/env.ts";
@@ -29,4 +30,4 @@ process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
 
 app.startStartupScan();
-console.log(`listening on http://${server.hostname}:${server.port}`);
+logger.info({ event: "server_listening", url: `http://${server.hostname}:${server.port}` });
