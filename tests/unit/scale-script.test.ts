@@ -70,13 +70,20 @@ describe("scale script helpers", () => {
       environment: {
         capturedAtUtc: "2026-09-05T12:00:00.000Z",
         dockerVersion: "29.4.0",
-        hostArchitecture: "arm64",
-        cpuModel: "Apple M4 Pro",
-        cpuCount: 10,
-        totalMemoryBytes: 17179869184,
-        imageReference: "mcp-knowledge-scale:test",
-        imageDigest: "sha256:abc",
-        commit: "0123456789abcdef",
+        host: {
+          architecture: "arm64",
+          cpuModel: "Apple M4 Pro",
+          cpuCount: 10,
+          totalMemoryBytes: 17179869184,
+        },
+        docker: { cpuCount: 12, totalMemoryBytes: 12599844864 },
+        image: {
+          reference: "mcp-knowledge-scale:test",
+          digest: "sha256:abc",
+          os: "linux",
+          architecture: "arm64",
+          revision: "3f50620f0af86b031ac7d4bb0c7ecc41e4540a90",
+        },
       },
       ingestion: { totalMs: 1200, perDocumentMs: 12 },
       resources: { peakRssBytes: 268435456, storageBytes: 1048576 },
@@ -104,13 +111,20 @@ describe("scale script helpers", () => {
         environment: {
           capturedAtUtc: "2026-09-05T12:00:00.000Z",
           dockerVersion: "29.4.0",
-          hostArchitecture: "arm64",
-          cpuModel: "Apple M4 Pro",
-          cpuCount: 10,
-          totalMemoryBytes: 17179869184,
-          imageReference: "mcp-knowledge-scale:test",
-          imageDigest: "sha256:abc",
-          commit: "0123456789abcdef",
+          host: {
+            architecture: "arm64",
+            cpuModel: "Apple M4 Pro",
+            cpuCount: 10,
+            totalMemoryBytes: 17179869184,
+          },
+          docker: { cpuCount: 12, totalMemoryBytes: 12599844864 },
+          image: {
+            reference: "mcp-knowledge-scale:test",
+            digest: "sha256:abc",
+            os: "linux",
+            architecture: "arm64",
+            revision: "3f50620f0af86b031ac7d4bb0c7ecc41e4540a90",
+          },
         },
         ingestion: { totalMs: 1200, perDocumentMs: 12 },
         resources: { peakRssBytes: 268435456, storageBytes: 1048576 },
@@ -181,9 +195,15 @@ describe("scale runner", () => {
       runCommand: async (args) => {
         const command = args.join(" ");
         if (command.includes("docker version")) return "29.4.0\n";
+        if (command.includes("docker info") && command.includes(".NCPU")) return "12\n";
+        if (command.includes("docker info") && command.includes(".MemTotal")) return "12599844864\n";
         if (command.includes(".Config.Image")) return "mcp-knowledge-scale:test\n";
         if (command.includes(".Image")) return "sha256:abc\n";
-        if (command.includes("git rev-parse")) return "0123456789abcdef\n";
+        if (command.includes(".Os")) return "linux\n";
+        if (command.includes(".Architecture")) return "arm64\n";
+        if (command.includes("org.opencontainers.image.revision")) {
+          return "3f50620f0af86b031ac7d4bb0c7ecc41e4540a90\n";
+        }
         if (command.includes("docker stats")) return "256MiB\n";
         if (command.includes("du -sk")) return "1024\t/app/data\n";
         if (command.includes("docker restart")) {
@@ -222,6 +242,24 @@ describe("scale runner", () => {
       const { fake, events } = runtime();
       const report = await runScale({ documents: 100, outputPath }, fake);
       expect(report.documents).toBe(100);
+      expect(report.environment).toEqual({
+        capturedAtUtc: "2026-09-05T12:00:00.000Z",
+        dockerVersion: "29.4.0",
+        host: {
+          architecture: "arm64",
+          cpuModel: "Apple M4 Pro",
+          cpuCount: 10,
+          totalMemoryBytes: 17179869184,
+        },
+        docker: { cpuCount: 12, totalMemoryBytes: 12599844864 },
+        image: {
+          reference: "mcp-knowledge-scale:test",
+          digest: "sha256:abc",
+          os: "linux",
+          architecture: "arm64",
+          revision: "3f50620f0af86b031ac7d4bb0c7ecc41e4540a90",
+        },
+      });
       expect(report.ingestion).toEqual({ totalMs: 10, perDocumentMs: 0.1 });
       expect(report.resources).toEqual({ peakRssBytes: 268435456, storageBytes: 1048576 });
       expect(report.search).toEqual({

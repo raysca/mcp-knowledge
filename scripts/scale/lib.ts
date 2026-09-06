@@ -25,13 +25,23 @@ export type ScaleReport = {
   environment: {
     capturedAtUtc: string;
     dockerVersion: string;
-    hostArchitecture: string;
-    cpuModel: string;
-    cpuCount: number;
-    totalMemoryBytes: number;
-    imageReference: string;
-    imageDigest: string;
-    commit: string;
+    host: {
+      architecture: string;
+      cpuModel: string;
+      cpuCount: number;
+      totalMemoryBytes: number;
+    };
+    docker: {
+      cpuCount: number;
+      totalMemoryBytes: number;
+    };
+    image: {
+      reference: string;
+      digest: string;
+      os: string;
+      architecture: string;
+      revision: string;
+    };
   };
   ingestion: {
     totalMs: number;
@@ -138,16 +148,25 @@ export function validateScaleReport(value: unknown): asserts value is ScaleRepor
   }
 
   const environment = record(report.environment, "environment");
-  exactFields(
-    environment,
-    ["capturedAtUtc", "dockerVersion", "hostArchitecture", "cpuModel", "cpuCount", "totalMemoryBytes", "imageReference", "imageDigest", "commit"],
-    "environment",
-  );
-  for (const field of ["capturedAtUtc", "dockerVersion", "hostArchitecture", "cpuModel", "imageReference", "imageDigest", "commit"] as const) {
+  exactFields(environment, ["capturedAtUtc", "dockerVersion", "host", "docker", "image"], "environment");
+  for (const field of ["capturedAtUtc", "dockerVersion"] as const) {
     nonemptyString(environment[field], `environment.${field}`);
   }
-  finiteNonnegative(environment.cpuCount, "environment.cpuCount");
-  finiteNonnegative(environment.totalMemoryBytes, "environment.totalMemoryBytes");
+  const host = record(environment.host, "environment.host");
+  exactFields(host, ["architecture", "cpuModel", "cpuCount", "totalMemoryBytes"], "environment.host");
+  nonemptyString(host.architecture, "environment.host.architecture");
+  nonemptyString(host.cpuModel, "environment.host.cpuModel");
+  finiteNonnegative(host.cpuCount, "environment.host.cpuCount");
+  finiteNonnegative(host.totalMemoryBytes, "environment.host.totalMemoryBytes");
+  const docker = record(environment.docker, "environment.docker");
+  exactFields(docker, ["cpuCount", "totalMemoryBytes"], "environment.docker");
+  finiteNonnegative(docker.cpuCount, "environment.docker.cpuCount");
+  finiteNonnegative(docker.totalMemoryBytes, "environment.docker.totalMemoryBytes");
+  const image = record(environment.image, "environment.image");
+  exactFields(image, ["reference", "digest", "os", "architecture", "revision"], "environment.image");
+  for (const field of ["reference", "digest", "os", "architecture", "revision"] as const) {
+    nonemptyString(image[field], `environment.image.${field}`);
+  }
 
   const ingestion = record(report.ingestion, "ingestion");
   exactFields(ingestion, ["totalMs", "perDocumentMs"], "ingestion");

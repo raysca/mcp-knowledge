@@ -137,7 +137,38 @@ export async function runScale(arguments_: ScaleArguments, runtime: ScaleRuntime
     "{{.Image}}",
     runtime.containerName,
   ])).trim();
-  const commit = (await runtime.runCommand(["git", "rev-parse", "HEAD"])).trim();
+  const dockerCpuCount = Number.parseInt(
+    (await runtime.runCommand(["docker", "info", "--format", "{{.NCPU}}"])).trim(),
+    10,
+  );
+  const dockerTotalMemoryBytes = Number.parseInt(
+    (await runtime.runCommand(["docker", "info", "--format", "{{.MemTotal}}"])).trim(),
+    10,
+  );
+  const imageOs = (await runtime.runCommand([
+    "docker",
+    "image",
+    "inspect",
+    "--format",
+    "{{.Os}}",
+    imageDigest,
+  ])).trim();
+  const imageArchitecture = (await runtime.runCommand([
+    "docker",
+    "image",
+    "inspect",
+    "--format",
+    "{{.Architecture}}",
+    imageDigest,
+  ])).trim();
+  const imageRevision = (await runtime.runCommand([
+    "docker",
+    "image",
+    "inspect",
+    "--format",
+    "{{index .Config.Labels \"org.opencontainers.image.revision\"}}",
+    imageDigest,
+  ])).trim();
 
   let peakRssBytes = await sampleRss(runtime);
   const sampleEvery = Math.max(1, Math.floor(arguments_.documents / 20));
@@ -188,13 +219,23 @@ export async function runScale(arguments_: ScaleArguments, runtime: ScaleRuntime
     environment: {
       capturedAtUtc: runtime.capturedAtUtc(),
       dockerVersion,
-      hostArchitecture: runtime.hostArchitecture,
-      cpuModel: runtime.cpuModel,
-      cpuCount: runtime.cpuCount,
-      totalMemoryBytes: runtime.totalMemoryBytes,
-      imageReference,
-      imageDigest,
-      commit,
+      host: {
+        architecture: runtime.hostArchitecture,
+        cpuModel: runtime.cpuModel,
+        cpuCount: runtime.cpuCount,
+        totalMemoryBytes: runtime.totalMemoryBytes,
+      },
+      docker: {
+        cpuCount: dockerCpuCount,
+        totalMemoryBytes: dockerTotalMemoryBytes,
+      },
+      image: {
+        reference: imageReference,
+        digest: imageDigest,
+        os: imageOs,
+        architecture: imageArchitecture,
+        revision: imageRevision,
+      },
     },
     ingestion: {
       totalMs: rounded(ingestionTotalMs),

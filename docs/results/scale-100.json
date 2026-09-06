@@ -2,37 +2,47 @@
   "schemaVersion": 1,
   "documents": 100,
   "environment": {
-    "capturedAtUtc": "2026-09-05T19:54:24.986Z",
+    "capturedAtUtc": "2026-09-06T05:53:07.938Z",
     "dockerVersion": "29.4.0",
-    "hostArchitecture": "arm64",
-    "cpuModel": "Apple M4 Pro",
-    "cpuCount": 12,
-    "totalMemoryBytes": 25769803776,
-    "imageReference": "mcp-knowledge-scale:task8-3f50620-r1",
-    "imageDigest": "sha256:418995fd391cbd791eede565f00ed78eef11988d7799740a3879828e9ef57009",
-    "commit": "3f50620f0af86b031ac7d4bb0c7ecc41e4540a90"
+    "host": {
+      "architecture": "arm64",
+      "cpuModel": "Apple M4 Pro",
+      "cpuCount": 12,
+      "totalMemoryBytes": 25769803776
+    },
+    "docker": {
+      "cpuCount": 12,
+      "totalMemoryBytes": 12599844864
+    },
+    "image": {
+      "reference": "mcp-knowledge-scale:task8-5eb25d3-r1",
+      "digest": "sha256:a5eac1da7ccff63373c14ed0b880dc58deae45c2b7e63cd483cb3784e2144c6c",
+      "os": "linux",
+      "architecture": "arm64",
+      "revision": "5eb25d34c75851ea215544cbad58cadbef6a7c6c"
+    }
   },
   "ingestion": {
-    "totalMs": 61918.569,
-    "perDocumentMs": 619.186
+    "totalMs": 62851.95,
+    "perDocumentMs": 628.519
   },
   "resources": {
-    "peakRssBytes": 306393907,
+    "peakRssBytes": 272105472,
     "storageBytes": 9842688
   },
   "search": {
     "sampleSize": 100,
     "coldMs": {
-      "p50": 5.107,
-      "p95": 7.738
+      "p50": 5.871,
+      "p95": 8.32
     },
     "warmMs": {
-      "p50": 4.908,
-      "p95": 7.154
+      "p50": 5.745,
+      "p95": 7.217
     }
   },
   "restart": {
-    "healthReadyMs": 10493.477,
-    "searchReadyMs": 10572.271
+    "healthReadyMs": 603.265,
+    "searchReadyMs": 683.343
   }
 }
