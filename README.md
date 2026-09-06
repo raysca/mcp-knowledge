@@ -1,149 +1,125 @@
 <div align="center">
 
-# Document Knowledge
+# MCP Knowledge
 
-**Self-hosted document search over MCP and REST — built on Bun.**
+**Private, self-hosted document retrieval for local RAG and MCP — in one Docker container.**
 
-Point it at your docs. Search them locally with explainable hybrid
-retrieval, or plug straight into Claude, Cursor, or any MCP client.
+Turn PDFs, Office files, Markdown, HTML, folders, URLs, and ZIP archives into a
+searchable knowledge base. Connect Claude, Cursor, or any Streamable HTTP MCP
+client. Embeddings run locally with no hosted model or paid API key.
 
-🔑 No API key · ⚡ One Bun process · 🔍 Built-in search playground · 📦 Bulk `.zip` ingestion
+[**Run it now ↓**](#quick-start) ·
+[Connect an MCP client](#connect-an-mcp-client) ·
+[Live overview](https://raysca.github.io/mcp-knowledge/) ·
+[Documentation](#documentation)
 
-[**Live overview →**](https://raysca.github.io/mcp-knowledge/) ·
-[Quick start](#quick-start) ·
-[MCP setup](#mcp) ·
-[Docs](#supporting-docs)
-
-[![License: MIT](https://img.shields.io/badge/license-MIT-3d5a80.svg)](LICENSE)
 [![Build](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml/badge.svg)](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml)
-![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-3d5a80)
-![No API key required](https://img.shields.io/badge/API%20key-not%20required-2e7d32)
+[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fraysca%2Fmcp--knowledge-2496ED?logo=docker&logoColor=white)](https://github.com/raysca/mcp-knowledge/pkgs/container/mcp-knowledge)
+[![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-3d5a80)](docs/container-release.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3d5a80.svg)](LICENSE)
 
 </div>
 
 ---
 
-## What you get
-
-- **No API key, ever** — embeddings run locally on a vendored model.
-- **Built on Bun** — one process, one container, fast cold start.
-- **Search playground built in** — compare hybrid/vector/lexical results live at `/playground`.
-- **Bulk ingestion** — drop a folder or a `.zip`; every file inside gets parsed and indexed.
-- **Explainable ranking** — every hit ships its vector rank, lexical rank, and fusion score.
-- **MCP-native** — a Streamable HTTP endpoint sits next to REST, same origin, same port.
-- **Any format** — PDF, Word, PowerPoint, Excel, HTML, Markdown, and more via [AnyDoc](https://github.com/firecrawl/anydoc).
-
-## Why not just use X?
-
-|  | **Document Knowledge** | Hosted RAG APIs | LangChain / LlamaIndex | Self-hosted chat-with-docs |
-| --- | :---: | :---: | :---: | :---: |
-| Paid LLM API key | **No** | Yes | Usually | Usually |
-| MCP-native | **Yes** | No | DIY | Rare |
-| Explainable ranking | **Yes** | No | DIY | Rare |
-| One container | **Yes** | N/A | No | Rarely |
-| Data stays on your machine | **Yes** | No | Depends | Usually |
-
-Hosted APIs win on demo speed; LangChain/LlamaIndex win on flexibility. This
-wins when you want the retrieval service already built, on your own
-hardware, nothing to sign up for.
-
-## How it works
-
-```mermaid
-flowchart LR
-    subgraph In[" "]
-        direction TB
-        U[Upload]
-        L[Watched folder]
-        R[URL]
-    end
-    In --> P["Parse<br/>AnyDoc + native text"]
-    P --> C["Chunk &amp; embed<br/>local MiniLM, worker thread"]
-    C --> D[("libSQL<br/>vector + FTS5, one file")]
-    D --> H{"Hybrid search<br/>Reciprocal Rank Fusion"}
-    H --> REST[REST API]
-    H --> MCP[MCP]
-    H --> UI[Dashboard]
-```
-
-A subprocess parses, a worker thread embeds — a bad upload can't take the
-server down, and nothing here calls out to a hosted model.
-
-Not sure this is what you're looking for? See [What this is not](#what-this-is-not).
-
-## Contents
-
-- [What you get](#what-you-get)
-- [Why not just use X?](#why-not-just-use-x)
-- [How it works](#how-it-works)
-- [Prerequisite](#prerequisite)
-- [Quick start](#quick-start)
-- [First upload and search](#first-upload-and-search)
-- [MCP](#mcp)
-- [Exposing beyond loopback](#exposing-beyond-loopback)
-- [Import a local directory on startup](#import-a-local-directory-on-startup)
-- [Persistence, recovery, and removal](#persistence-recovery-and-removal)
-- [What this is not](#what-this-is-not)
-- [Supporting docs](#supporting-docs)
-- [Contributor workflow](#contributor-workflow-local-checkout-no-docker)
-
-## Prerequisite
-
-Docker Engine or Docker Desktop with Compose. Nothing else needs to be
-installed on the host — Bun, the parser, and the embedding model are all
-inside the image.
-
 ## Quick start
 
+Run the published multi-architecture image. Docker creates the named data
+volume automatically:
+
 ```bash
-docker compose up -d
+docker run -d \
+  --name mcp-knowledge \
+  --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
+  -v mcp-knowledge-data:/app/data \
+  ghcr.io/raysca/mcp-knowledge:main
 ```
 
-This builds the image, starts one container bound to `127.0.0.1:3000`, and
-creates a named volume (`mcp-knowledge-data`) that holds everything —
-database, document originals, embeddings. Wait for it to report healthy:
+Wait for the service, then open [http://127.0.0.1:3000](http://127.0.0.1:3000):
 
 ```bash
-docker compose ps
+docker inspect --format '{{.State.Health.Status}}' mcp-knowledge
 curl --fail http://127.0.0.1:3000/health
 ```
 
-With no `DASHBOARD_PASSPHRASE` set, the instance has no auth at all — the
-dashboard, REST API, and MCP endpoint all just work on loopback. That's fine
-for a service only your own machine can reach; see
-[Exposing beyond loopback](#exposing-beyond-loopback) before putting this
-anywhere else can reach it.
+The `main` tag is the current published build. Pin a versioned tag such as
+`0.1.0` when the first release is published.
 
-## First upload and search
+By default the service is bound to loopback and has no authentication. That is
+appropriate for a service only your machine can reach. Set a passphrase before
+[exposing it to a LAN, proxy, or tunnel](#exposing-beyond-loopback).
 
-Open `http://127.0.0.1:3000` for the dashboard, or use the API directly:
+Prefer Compose or want to build locally?
 
 ```bash
-curl -sS -X POST http://127.0.0.1:3000/api/v1/documents \
-  -F "file=@/path/to/a/document.pdf"
-
-curl -sS -X POST http://127.0.0.1:3000/api/v1/search \
-  -H 'content-type: application/json' \
-  -d '{"query":"a phrase from the document","mode":"hybrid","limit":8}'
+git clone https://github.com/raysca/mcp-knowledge.git
+cd mcp-knowledge
+docker compose up -d
 ```
 
-Poll `GET /api/v1/documents/:id` or watch the Jobs page until it reaches
-`ready`.
+## What it is for
 
-- **Playground:** `/playground` runs hybrid, vector, and lexical search side
-  by side and shows why each result ranked where it did.
-- **Bulk ingest:** upload a `.zip` instead of one file and every allowlisted
-  file inside it gets extracted and indexed.
+- Give Claude, Cursor, and other MCP clients searchable access to private
+  documents.
+- Add a ready-made local retrieval layer to an application through REST.
+- Inspect hybrid, vector, and lexical ranking without sending document content
+  to a hosted embedding service.
 
-See [docs/supported-formats.md](docs/supported-formats.md) for accepted file
-types and size limits.
+This project provides retrieval, not answer generation. Your MCP client or
+application decides how to use the returned passages.
 
-## MCP
+## What you get
 
-Dashboard, REST, and MCP share the same `Bun.serve()` process and port — the
-MCP endpoint is `/mcp` (Streamable HTTP). MCP tools are read-only
-(`search_documents`, `get_document`, `get_chunk`, `list_documents`,
-`list_collections`); use the REST API to upload or manage documents.
+- **Local embeddings** — the MiniLM model is vendored and runs on your machine;
+  no hosted model account is required.
+- **MCP and REST together** — one service, one indexed corpus, one port.
+- **Explainable hybrid search** — every result can include its vector rank,
+  lexical rank, and reciprocal-rank-fusion score.
+- **Built-in playground** — compare hybrid, vector, and lexical results at
+  `/playground` before integrating a client.
+- **Flexible ingestion** — upload files and ZIP archives, watch a local folder,
+  or ingest an allowed public URL.
+- **Common document formats** — PDF, Word, PowerPoint, Excel, HTML, Markdown,
+  text, and more through [AnyDoc](https://github.com/firecrawl/anydoc).
+- **Simple local operations** — one Bun process, one container, one persistent
+  named volume, plus documented backup and recovery.
+
+Images are published for `linux/amd64` and `linux/arm64`. Reference runs cover
+100, 500, and 1,000 small documents; these are measurements, not hard capacity
+limits or guarantees. See [the performance notes](docs/performance.md).
+
+## Connect an MCP client
+
+The Streamable HTTP endpoint is:
+
+```text
+http://127.0.0.1:3000/mcp
+```
+
+For an unauthenticated loopback-only instance, the client configuration is:
+
+```json
+{
+  "mcpServers": {
+    "knowledge": {
+      "url": "http://127.0.0.1:3000/mcp"
+    }
+  }
+}
+```
+
+The MCP surface is intentionally read-only:
+
+- `search_documents`
+- `get_document`
+- `get_chunk`
+- `list_documents`
+- `list_collections`
+
+Use the dashboard or REST API to upload and manage documents.
+
+If authentication is enabled, include a generated API key:
 
 ```json
 {
@@ -158,13 +134,11 @@ MCP endpoint is `/mcp` (Streamable HTTP). MCP tools are read-only
 }
 ```
 
-If no `DASHBOARD_PASSPHRASE` is set, omit the `Authorization` header entirely.
-
 ### Generate an API key
 
-API keys are for MCP clients and scripts — separate from the dashboard's
-passphrase/session. Once a passphrase is set, minting a key requires either
-an active dashboard session or an existing `admin` key:
+API keys authenticate MCP clients and scripts. They are separate from the
+dashboard passphrase and browser session. Once a passphrase is set, minting a
+key requires an active dashboard session or an existing `admin` key:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:3000/api/v1/api-keys \
@@ -173,101 +147,140 @@ curl -sS -X POST http://127.0.0.1:3000/api/v1/api-keys \
   -d '{"name":"local","scopes":["admin"]}'
 ```
 
-The response includes `secret` once (a `key_…` string); only a hash is
-stored afterward. Omit `scopes` to get `read`. Allowed scopes: `read`,
-`write`, `admin`.
+The response shows the `key_…` secret once; only its hash is stored. Omit
+`scopes` to create a read-only key. Allowed scopes are `read`, `write`, and
+`admin`.
+
+## Upload and search
+
+Open the dashboard at [http://127.0.0.1:3000](http://127.0.0.1:3000), or use
+REST directly:
 
 ```bash
-curl -sS http://127.0.0.1:3000/api/v1/documents \
-  -H "Authorization: Bearer <secret>"
+curl -sS -X POST http://127.0.0.1:3000/api/v1/documents \
+  -F "file=@/path/to/a/document.pdf"
+
+curl -sS -X POST http://127.0.0.1:3000/api/v1/search \
+  -H 'content-type: application/json' \
+  -d '{"query":"a phrase from the document","mode":"hybrid","limit":8}'
 ```
 
-Empty the corpus: `POST /api/v1/documents/purge` with `{ "confirm": "purge" }`.
-Collections and API keys stay.
+Poll `GET /api/v1/documents/:id` or watch the Jobs page until the document is
+`ready`. Upload a `.zip` to extract and index every supported file it contains.
+
+See [supported formats and limits](docs/supported-formats.md) before importing
+large or unusual files.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph In["Ingest"]
+        U[Upload]
+        L[Watched folder]
+        R[Public URL]
+    end
+    In --> P["Parse<br/>AnyDoc + native text"]
+    P --> C["Chunk and embed<br/>local MiniLM"]
+    C --> D[("libSQL<br/>vector + FTS5")]
+    D --> H{"Hybrid search<br/>RRF"}
+    H --> REST[REST]
+    H --> MCP[MCP]
+    H --> UI[Playground]
+```
+
+Parsing runs in a subprocess and embedding runs in a worker thread, isolating
+the HTTP server from malformed documents and model work. Document originals,
+normalized text, chunks, and indexes remain in the local data volume.
+
+## Import a local directory
+
+With Compose, mount a directory read-only and configure the startup scan:
+
+```yaml
+services:
+  knowledge:
+    environment:
+      INGEST_DATA_DIR: /import
+    volumes:
+      - mcp-knowledge-data:/app/data
+      - ./knowledge:/import:ro
+```
+
+`INGEST_DATA_MAX_DEPTH` defaults to `8`, and `INGEST_DATA_MAX_FILES` defaults
+to `10000`. Missing source files do not delete indexed documents; changed or
+renamed scanner-owned files replace their previous document.
+
+URL ingestion is available through `POST /api/v1/documents/from-url`.
+Loopback, private, link-local, and cloud-metadata targets are blocked,
+including through redirects.
 
 ## Exposing beyond loopback
 
-**Set `DASHBOARD_PASSPHRASE` before making this reachable from anywhere but
-`127.0.0.1`** — a LAN address, a reverse proxy, a tunnel:
+Set `DASHBOARD_PASSPHRASE` before publishing the service on a LAN, through a
+reverse proxy, or through a tunnel:
 
 ```bash
-DASHBOARD_PASSPHRASE=correct-horse-battery-staple docker compose up -d
+docker run -d \
+  --name mcp-knowledge \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -e DASHBOARD_PASSPHRASE='replace-with-a-long-random-passphrase' \
+  -v mcp-knowledge-data:/app/data \
+  ghcr.io/raysca/mcp-knowledge:main
 ```
 
-Opening the dashboard now prompts for the passphrase. On success the server
-sets an `HttpOnly`, `SameSite=Strict` session cookie (`mk_session`, 30 days).
-Logging in also unlocks `/api/v1/*` for that browser session, so you can mint
-your first API key from the dashboard itself. Wrong-passphrase attempts are
-rate-limited per remote address.
+The dashboard sets an `HttpOnly`, `SameSite=Strict` session cookie after
+login. Authentication does not trust network position: the same checks apply
+through loopback, LAN access, and proxies. Read [SECURITY.md](SECURITY.md)
+before exposing the service.
 
-There is no network-position exception anywhere in auth — a passphrase is
-checked the same way regardless of who's asking or how they connect, which is
-what makes it safe to put a real reverse proxy in front. See
-[SECURITY.md](SECURITY.md) for the full model, including URL-ingest SSRF
-protections and backup sensitivity.
+## Persistence, backup, and removal
 
-## Import a local directory on startup
-
-Set `INGEST_DATA_DIR` to scan one local directory in the background after the
-server starts:
-
-```yaml
-# compose.yaml
-environment:
-  INGEST_DATA_DIR: /import
-volumes:
-  - ./knowledge:/import:ro
-```
-
-`INGEST_DATA_MAX_DEPTH` defaults to `8` (`0` means root files only) and
-`INGEST_DATA_MAX_FILES` defaults to `10000`. Missing files do not remove
-documents; changed and renamed scanner-owned files replace the prior
-document. A `.zip` found by the scan is extracted the same way a manually
-uploaded one is. Progress appears on the Jobs page. URL ingest works the same
-way on demand: `POST /api/v1/documents/from-url` with `{ "url": "https://..." }`
-(loopback, RFC1918, link-local, and cloud-metadata targets are blocked,
-including through redirects).
-
-## Persistence, recovery, and removal
-
-Everything lives in the `mcp-knowledge-data` volume. Restarting or rebuilding
-the container preserves it:
+Everything is stored in the `mcp-knowledge-data` volume. Replacing or
+restarting the container preserves it:
 
 ```bash
-docker compose restart
-docker compose down      # keeps the volume
-docker compose down -v   # deletes it — irreversible
+docker restart mcp-knowledge
+docker rm -f mcp-knowledge              # keeps the named volume
+docker volume rm mcp-knowledge-data     # deletes all data — irreversible
 ```
 
-For an offline backup or disaster recovery onto a fresh volume, see
-[docs/backup-and-restore.md](docs/backup-and-restore.md). Every derived
-artifact (normalized text, chunks, embeddings) can be rebuilt from the stored
-original via reindex; the original itself is what backup and restore protect.
+For stopped-volume backup and disaster recovery, follow
+[docs/backup-and-restore.md](docs/backup-and-restore.md). Document originals
+are the irreplaceable part; normalized text, chunks, and embeddings can be
+rebuilt.
 
-## What this is not
+## Choose MCP Knowledge when
 
-Not a chat app, not an agent framework, not a general document-management
-system. No hosted AI dependency, no multi-tenancy, no distributed deployment
-in v0.1 — see [CHANGELOG.md](CHANGELOG.md) for the full list of what's
-deliberately out of scope for this release.
+- Your documents need to remain on hardware you control.
+- You want retrieval over MCP without assembling a general RAG framework.
+- REST and MCP should expose the same local corpus.
+- You want ranking evidence rather than an unexplained similarity score.
 
-## Supporting docs
+It is not a chatbot, agent framework, general document-management system,
+multi-tenant SaaS, or distributed vector database. Those boundaries are
+deliberate for the `v0.1` release.
 
-- [docs/supported-formats.md](docs/supported-formats.md) — accepted file
-  types, OCR/password behavior, size and resource limits.
-- [docs/troubleshooting.md](docs/troubleshooting.md) — every ingestion
-  failure code, what it means, and how to recover.
-- [docs/backup-and-restore.md](docs/backup-and-restore.md) — offline backup
-  and disaster recovery.
-- [docs/performance.md](docs/performance.md) — reference scale measurements
-  at 100/500/1,000 documents.
-- [docs/container-release.md](docs/container-release.md) — how the
-  multi-architecture image is built, tested, and published.
-- [SECURITY.md](SECURITY.md) — exposure model, SSRF boundary, and how to
-  report a vulnerability.
-- [CHANGELOG.md](CHANGELOG.md) — what's in 0.1.0 and what's deliberately not.
+## Documentation
 
-## Contributor workflow (local checkout, no Docker)
+- [Supported formats](docs/supported-formats.md) — accepted file types, OCR and
+  password behavior, size limits, and resource limits.
+- [Troubleshooting](docs/troubleshooting.md) — ingestion failure codes, causes,
+  and recovery steps.
+- [Backup and restore](docs/backup-and-restore.md) — offline backup and disaster
+  recovery.
+- [Performance](docs/performance.md) — reference measurements for 100, 500,
+  and 1,000 documents.
+- [Container release](docs/container-release.md) — multi-architecture build,
+  smoke testing, and publication.
+- [Security model](SECURITY.md) — authentication, SSRF boundaries, backup
+  sensitivity, and vulnerability reporting.
+- [Changelog](CHANGELOG.md) — release contents and deliberately deferred scope.
+
+## Develop without Docker
+
+Requires [Bun](https://bun.sh/):
 
 ```bash
 bun install
@@ -275,17 +288,15 @@ bun db:migrate
 bun dev
 ```
 
-Dashboard, REST, and MCP share one `Bun.serve()` process (default
-`http://127.0.0.1:3000`). Before committing:
+Before committing:
 
 ```bash
 bun run typecheck
 bun test
 ```
 
-`bun run release:check` runs the full release gate (typecheck, tests, CSS
-build, Compose validation, both-platform Docker smoke, scale-report
-validation) — the same gate `v0.1.0` was tagged against.
+`bun run release:check` runs the release gate: type checking, tests, CSS build,
+Compose validation, both-platform Docker smoke, and scale-report validation.
 
 ## License
 
