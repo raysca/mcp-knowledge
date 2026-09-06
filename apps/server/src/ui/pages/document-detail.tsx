@@ -100,7 +100,7 @@ function formatDate(value: string): string {
 function Definition({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0 border-t border-rule/70 py-3">
-      <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate">{label}</dt>
+      <dt className="font-mono text-[10px] text-slate">{label}</dt>
       <dd className="mt-1 break-words text-sm text-ink">{children}</dd>
     </div>
   );
@@ -267,7 +267,7 @@ export function DocumentDetailPage({
     return (
       <section>
         <BackButton onBack={onBack} />
-        <p className="border-y border-rule py-12 text-center text-slate">Loading document…</p>
+        <p className="rounded-xl border border-rule bg-shelf py-16 text-center text-slate">Loading document…</p>
       </section>
     );
   }
@@ -276,7 +276,7 @@ export function DocumentDetailPage({
     return (
       <section>
         <BackButton onBack={onBack} />
-        <p className="border border-stamp/40 bg-stamp/5 px-4 py-3 text-sm text-stamp">
+        <p className="rounded-xl border border-stamp/40 bg-stamp/5 px-4 py-3 text-sm text-stamp">
           {error ?? "Document not found."}
         </p>
       </section>
@@ -289,23 +289,23 @@ export function DocumentDetailPage({
     <section>
       <BackButton onBack={onBack} />
 
-      <header className="border-y border-rule py-6">
+      <header className="rounded-xl border border-rule bg-shelf p-6">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="border border-navy px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-navy">
+              <span className={document.status === "ready" ? "rounded-md border border-navy/30 bg-navy/10 px-2 py-0.5 font-mono text-[10px] text-navy" : document.status === "failed" ? "rounded-md border border-stamp/40 bg-stamp/10 px-2 py-0.5 font-mono text-[10px] text-stamp" : "rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 font-mono text-[10px] text-amber-300"}>
                 {document.status}
               </span>
               <span className="font-mono text-[11px] text-slate">{document.mimeType}</span>
             </div>
-            <h2 className="break-words font-display text-3xl leading-tight sm:text-4xl">{title}</h2>
+            <h1 className="break-words font-display text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">{title}</h1>
             {title !== document.originalFilename ? (
               <p className="mt-1 text-sm text-slate">{document.originalFilename}</p>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <a
-              className="inline-flex h-9 items-center justify-center rounded-sm border border-rule px-3 text-sm font-medium text-ink transition-colors hover:bg-shelf focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stamp"
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-rule bg-[#0e1116] px-3 text-sm font-medium text-ink transition-colors hover:border-[#38404c] hover:bg-[#191d24] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
               href={`/api/v1/documents/${encodeURIComponent(documentId)}/file`}
             >
               Download
@@ -326,7 +326,7 @@ export function DocumentDetailPage({
         {document.latestError ? <IngestionErrorDetails value={document.latestError} /> : null}
       </header>
 
-      <dl className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="mt-6 grid gap-x-6 rounded-xl border border-rule bg-shelf px-5 sm:grid-cols-2 lg:grid-cols-4">
         <Definition label="Document ID"><span className="font-mono text-xs">{document.id}</span></Definition>
         <Definition label="Revision ID"><span className="font-mono text-xs">{document.currentRevisionId ?? "—"}</span></Definition>
         <Definition label="Size">{document.sizeBytes.toLocaleString()} bytes</Definition>
@@ -338,8 +338,8 @@ export function DocumentDetailPage({
       </dl>
 
       {hasFields(document.metadata) ? (
-        <details className="border-t border-rule/70 py-3">
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.14em] text-slate">
+        <details className="mt-6 rounded-xl border border-rule bg-shelf px-5 py-4">
+          <summary className="cursor-pointer font-mono text-[10px] text-slate">
             Document metadata
           </summary>
           <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs text-ink">
@@ -348,28 +348,28 @@ export function DocumentDetailPage({
         </details>
       ) : null}
 
-      <div className="mt-10 flex items-end justify-between border-b border-rule pb-3">
+      <div className="mt-10 flex items-end justify-between pb-3">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-navy">Current revision</p>
-          <h3 className="font-display text-2xl">Chunks</h3>
+          <p className="font-mono text-[10px] text-navy">Current revision</p>
+          <h2 className="font-display text-2xl font-semibold tracking-tight">Chunks</h2>
         </div>
         <p className="font-mono text-[11px] text-slate">{chunks.items.length} loaded</p>
       </div>
 
       {isProcessing(document.status) ? (
-        <p className="border-b border-rule py-10 text-center text-slate">
+        <p className="rounded-xl border border-rule bg-shelf py-12 text-center text-slate">
           Chunks will appear when processing finishes.
         </p>
       ) : document.status === "failed" ? (
-        <p className="border-b border-rule py-10 text-center text-slate">
+        <p className="rounded-xl border border-rule bg-shelf py-12 text-center text-slate">
           This document has no browsable chunks because ingestion failed.
         </p>
       ) : loadingChunks && chunks.items.length === 0 ? (
-        <p className="border-b border-rule py-10 text-center text-slate">Loading chunks…</p>
+        <p className="rounded-xl border border-rule bg-shelf py-12 text-center text-slate">Loading chunks…</p>
       ) : chunkError && chunks.items.length === 0 ? (
-        <p className="border-b border-rule py-10 text-center text-stamp">{chunkError}</p>
+        <p className="rounded-xl border border-stamp/40 bg-stamp/5 py-12 text-center text-stamp">{chunkError}</p>
       ) : chunks.items.length === 0 ? (
-        <p className="border-b border-rule py-10 text-center text-slate">
+        <p className="rounded-xl border border-rule bg-shelf py-12 text-center text-slate">
           This ready document contains no chunks.
         </p>
       ) : (
@@ -377,22 +377,22 @@ export function DocumentDetailPage({
           {chunks.items.map((chunk) => (
             <article
               key={chunk.id}
-              className="grid border-b border-rule sm:grid-cols-[5rem_minmax(0,1fr)]"
+              className="mb-3 grid overflow-hidden rounded-xl border border-rule bg-shelf sm:grid-cols-[5rem_minmax(0,1fr)]"
             >
-              <div className="border-b border-rule/50 py-4 sm:border-b-0 sm:border-r sm:pr-4">
+              <div className="border-b border-rule bg-[#0e1116] p-4 sm:border-b-0 sm:border-r">
                 <span className="font-mono text-xl text-navy">
                   {String(chunk.sequence + 1).padStart(3, "0")}
                 </span>
-                <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-slate">
+                <div className="mt-1 font-mono text-[10px] text-slate">
                   {chunk.tokenCount} tokens
                 </div>
               </div>
-              <div className="min-w-0 py-5 sm:pl-6">
+              <div className="min-w-0 p-5">
                 <p className="mb-3 font-mono text-[11px] text-navy">
                   {chunk.headingPath.length > 0 ? chunk.headingPath.join(" / ") : "Unheaded"}
                 </p>
                 <div className="whitespace-pre-wrap [overflow-wrap:anywhere] text-[15px] leading-7 text-ink">{chunk.content}</div>
-                <div className="mt-5 grid gap-2 border-t border-rule/50 pt-3 font-mono text-[10px] text-slate lg:grid-cols-2">
+                <div className="mt-5 grid gap-2 border-t border-rule pt-3 font-mono text-[10px] text-slate lg:grid-cols-2">
                   <span className="break-all">{chunk.id}</span>
                   <span className="break-all lg:text-right">hash {chunk.contentHash}</span>
                 </div>
@@ -400,7 +400,7 @@ export function DocumentDetailPage({
                   <div className="mt-3 grid gap-3 text-xs text-slate lg:grid-cols-2">
                     {hasFields(chunk.location) ? (
                       <div>
-                        <span className="font-mono text-[10px] uppercase tracking-wide">Source</span>
+                        <span className="font-mono text-[10px]">Source</span>
                         <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px]">
                           {JSON.stringify(chunk.location, null, 2)}
                         </pre>
@@ -408,7 +408,7 @@ export function DocumentDetailPage({
                     ) : null}
                     {hasFields(chunk.metadata) ? (
                       <div>
-                        <span className="font-mono text-[10px] uppercase tracking-wide">Metadata</span>
+                        <span className="font-mono text-[10px]">Metadata</span>
                         <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px]">
                           {JSON.stringify(chunk.metadata, null, 2)}
                         </pre>
@@ -424,7 +424,7 @@ export function DocumentDetailPage({
 
       {chunkError && chunks.items.length > 0 ? <p className="mt-4 text-sm text-stamp">{chunkError}</p> : null}
       {chunks.nextCursor ? (
-        <div className="flex justify-center border-b border-rule py-6">
+        <div className="flex justify-center py-6">
           <Button variant="outline" disabled={loadingChunks} onClick={() => void loadMore()}>
             {loadingChunks ? "Loading…" : "Load more chunks"}
           </Button>
@@ -438,7 +438,7 @@ function BackButton({ onBack }: { onBack: () => void }) {
   return (
     <button
       type="button"
-      className="mb-5 font-mono text-[11px] uppercase tracking-[0.12em] text-navy underline decoration-rule underline-offset-4 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stamp"
+      className="mb-5 inline-flex font-mono text-[11px] text-navy underline decoration-navy/40 underline-offset-4 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       onClick={onBack}
     >
       ← All documents

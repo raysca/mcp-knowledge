@@ -21,6 +21,12 @@ const STATE_LABEL: Record<ArchiveImportSummary["state"], string> = {
   failed: "Failed",
 };
 
+function stateClass(state: ArchiveImportSummary["state"]): string {
+  if (state === "completed") return "border-navy/30 bg-navy/10 text-navy";
+  if (state === "failed" || state === "completed_with_errors") return "border-stamp/40 bg-stamp/10 text-stamp";
+  return "border-amber-400/30 bg-amber-400/10 text-amber-300";
+}
+
 export function ArchiveImportsPanel({
   items,
   error,
@@ -30,8 +36,8 @@ export function ArchiveImportsPanel({
 }) {
   if (items.length === 0 && !error) return null;
   return (
-    <section className="mb-6 border border-rule bg-shelf/40 p-4">
-      <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-navy">
+    <section className="mb-6 rounded-xl border border-rule bg-shelf p-5">
+      <h2 className="text-lg font-semibold tracking-tight">
         Archive imports
       </h2>
       {items.length === 0 ? (
@@ -41,7 +47,7 @@ export function ArchiveImportsPanel({
           {items.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
               <span className="font-mono">{item.originalFilename}</span>
-              <span className="border border-rule px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-slate">
+              <span className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${stateClass(item.state)}`}>
                 {STATE_LABEL[item.state]}
               </span>
               <span className="font-mono text-xs text-slate">

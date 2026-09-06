@@ -61,8 +61,8 @@ export function IngestionErrorDetails({ value }: { value: string | null | undefi
   const failure = parseIngestionError(value);
   return createElement(
     "div",
-    { className: "mt-1 text-xs text-stamp" },
-    createElement("span", { className: "font-mono uppercase" }, failure.code),
+    { className: "mt-2 rounded-lg border border-stamp/30 bg-stamp/5 p-3 text-xs text-stamp" },
+    createElement("span", { className: "font-mono" }, failure.code),
     createElement("p", null, failure.message),
     createElement("p", { className: "text-slate" }, failure.action),
   );

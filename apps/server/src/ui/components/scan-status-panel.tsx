@@ -36,12 +36,12 @@ export function ScanStatusPanel({
   error: string | null;
 }) {
   return (
-    <section className="mb-6 border border-rule bg-shelf/40 p-4">
+    <section className="mb-6 rounded-xl border border-rule bg-shelf p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-navy">
+        <h2 className="text-lg font-semibold tracking-tight">
           Startup directory scan
         </h2>
-        <span className="border border-rule px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-slate">
+        <span className="rounded-md border border-rule bg-[#0e1116] px-2 py-0.5 font-mono text-[11px] text-slate">
           {STATE_LABEL[status.state]}
         </span>
       </div>
@@ -58,7 +58,7 @@ export function ScanStatusPanel({
         <dl className="mt-3 grid grid-cols-4 gap-x-4 gap-y-2 sm:grid-cols-8">
           {COUNT_LABELS.map(([key, label]) => (
             <div key={key}>
-              <dt className="font-mono text-[10px] uppercase tracking-wide text-slate">{label}</dt>
+              <dt className="font-mono text-[10px] text-slate">{label}</dt>
               <dd className="font-mono text-sm">{status.counts[key]}</dd>
             </div>
           ))}

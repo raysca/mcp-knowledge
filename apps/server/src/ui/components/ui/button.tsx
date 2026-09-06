@@ -3,13 +3,13 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "../../lib/cn.ts";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stamp disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:pointer-events-none disabled:opacity-45",
   {
     variants: {
       variant: {
-        default: "bg-ink text-paper hover:bg-navy",
-        outline: "border border-rule bg-transparent text-ink hover:bg-shelf",
-        ghost: "text-ink hover:bg-shelf",
+        default: "bg-navy text-[#062019] hover:bg-[#63f0d3]",
+        outline: "border border-rule bg-shelf text-ink hover:border-[#38404c] hover:bg-[#191d24]",
+        ghost: "text-slate hover:bg-shelf hover:text-ink",
       },
       size: {
         default: "h-9",

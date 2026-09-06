@@ -86,9 +86,11 @@ function LoginGate({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <form onSubmit={(e) => void submit(e)} className="w-full max-w-xs border border-rule bg-shelf/40 p-6">
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-navy">Local archive</p>
-        <h1 className="mb-4 font-display text-2xl">Enter passphrase</h1>
+      <form onSubmit={(e) => void submit(e)} className="w-full max-w-sm rounded-xl border border-rule bg-shelf p-7 shadow-2xl">
+        <BrandGlyph />
+        <p className="mt-5 font-mono text-xs text-navy">MCP Knowledge</p>
+        <h1 className="mb-2 mt-2 font-display text-2xl font-semibold tracking-tight">Unlock your knowledge base</h1>
+        <p className="mb-5 text-sm text-slate">Enter the dashboard passphrase to continue.</p>
         <Input
           type="password"
           autoFocus
@@ -146,13 +148,16 @@ function AppShell() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-rule bg-shelf/60">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-end justify-between gap-6 px-4 pt-8">
-          <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-navy">Local archive</p>
-            <h1 className="font-display text-4xl leading-none">Knowledge</h1>
+      <header className="sticky top-0 z-30 border-b border-rule bg-paper/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-8 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3 py-1">
+            <BrandGlyph />
+            <div>
+              <p className="font-display text-sm font-semibold leading-tight tracking-tight">MCP Knowledge</p>
+              <p className="font-mono text-[10px] text-slate">private retrieval</p>
+            </div>
           </div>
-          <nav className="flex w-full gap-1 overflow-x-auto sm:w-auto" aria-label="Primary">
+          <nav className="order-last mt-2 flex w-full gap-1 overflow-x-auto sm:order-none sm:mt-0 sm:w-auto" aria-label="Primary">
             <Tab active={page === "documents"} onClick={() => go("documents")}>
               Documents
             </Tab>
@@ -168,7 +173,7 @@ function AppShell() {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
         {documentId ? (
           <DocumentDetailPage documentId={documentId} onBack={() => go("documents")} />
         ) : page === "documents" ? (
@@ -182,6 +187,16 @@ function AppShell() {
         )}
       </main>
     </div>
+  );
+}
+
+function BrandGlyph() {
+  return (
+    <span className="flex h-6 w-6 flex-col justify-center gap-1 rounded-md border border-rule bg-[#191d24] px-1" aria-hidden="true">
+      <span className="h-0.5 w-full rounded-full bg-ink" />
+      <span className="h-0.5 w-full rounded-full bg-ink" />
+      <span className="h-0.5 w-1/2 rounded-full bg-navy" />
+    </span>
   );
 }
 
@@ -200,8 +215,8 @@ function Tab({
       onClick={onClick}
       className={
         active
-          ? "rounded-t-sm border border-b-0 border-rule bg-paper px-4 py-2 text-sm"
-          : "rounded-t-sm border border-transparent px-4 py-2 text-sm text-slate hover:text-ink"
+          ? "border-b-2 border-navy px-3 py-2 text-sm font-medium text-ink"
+          : "border-b-2 border-transparent px-3 py-2 text-sm text-slate transition-colors hover:text-ink"
       }
     >
       {children}
@@ -261,10 +276,11 @@ function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => voi
 
   return (
     <section>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-slate">
-          Files move from processing to ready after parse and chunk. Failures show on Jobs.
-        </p>
+      <header className="mb-7 flex flex-wrap items-end justify-between gap-5">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Documents</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate">Upload and inspect the files in your retrieval corpus. Processing failures appear in Jobs.</p>
+        </div>
         <div className="inline-flex items-center gap-2">
           <input
             ref={fileInputRef}
@@ -305,12 +321,12 @@ function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => voi
             Empty archive
           </Button>
         </div>
-      </div>
+      </header>
       {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
       {items.length === 0 ? (
-        <p className="border border-dashed border-rule px-4 py-12 text-center text-slate">No documents yet. Upload a file to start the shelf.</p>
+        <p className="rounded-xl border border-dashed border-rule bg-shelf px-4 py-16 text-center text-slate">No documents yet. Upload a file to build your corpus.</p>
       ) : (
-        <Table>
+        <Table aria-label="Documents">
           <TableHeader>
             <TableRow>
               <TableHead>File</TableHead>
@@ -324,7 +340,7 @@ function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => voi
               <TableRow key={doc.id}>
                 <TableCell>
                   <a
-                    className="font-medium text-ink underline decoration-rule underline-offset-4 hover:text-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stamp"
+                    className="font-medium text-ink underline decoration-rule underline-offset-4 hover:text-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
                     href={`/documents/${encodeURIComponent(doc.id)}`}
                     onClick={(event) => {
                       if (!shouldNavigateInApp(event)) return;
@@ -337,14 +353,14 @@ function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => voi
                   <div className="font-mono text-[11px] text-slate">{doc.id}</div>
                 </TableCell>
                 <TableCell>
-                  <span className="inline-block border border-stamp px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-stamp">
+                  <span className={doc.status === "ready" ? "inline-block rounded-md border border-navy/30 bg-navy/10 px-2 py-0.5 font-mono text-[11px] text-navy" : doc.status === "failed" ? "inline-block rounded-md border border-stamp/40 bg-stamp/10 px-2 py-0.5 font-mono text-[11px] text-stamp" : "inline-block rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 font-mono text-[11px] text-amber-300"}>
                     {doc.status}
                   </span>
                   {doc.latestError ? <IngestionErrorDetails value={doc.latestError} /> : null}
                 </TableCell>
                 <TableCell className="font-mono text-xs">{doc.sizeBytes} B</TableCell>
                 <TableCell className="text-right">
-                  <a className="mr-3 text-sm text-navy underline" href={`/api/v1/documents/${doc.id}/file`}>
+                  <a className="mr-3 text-sm text-navy underline decoration-navy/40 underline-offset-4 hover:text-ink" href={`/api/v1/documents/${doc.id}/file`}>
                     Download
                   </a>
                   <Button variant="ghost" size="sm" onClick={() => void onDelete(doc.id)}>
@@ -409,15 +425,18 @@ function CollectionsPage() {
 
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-slate">Group documents. Delete is blocked while a collection still holds files.</p>
+      <header className="mb-7 flex flex-wrap items-end justify-between gap-5">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Collections</h1>
+          <p className="mt-2 text-sm text-slate">Group documents into focused retrieval boundaries. Collections must be empty before deletion.</p>
+        </div>
         <Button onClick={() => setOpen(true)}>New collection</Button>
-      </div>
+      </header>
       {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
       {items.length === 0 ? (
-        <p className="border border-dashed border-rule px-4 py-12 text-center text-slate">No collections yet.</p>
+        <p className="rounded-xl border border-dashed border-rule bg-shelf px-4 py-16 text-center text-slate">No collections yet. Create one to organize your corpus.</p>
       ) : (
-        <Table>
+        <Table aria-label="Collections">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -521,14 +540,18 @@ function JobsPage() {
 
   return (
     <section>
+      <header className="mb-7">
+        <h1 className="text-3xl font-semibold tracking-tight">Jobs</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate">Monitor imports and ingestion work. Failed jobs keep their source revision and can be retried.</p>
+      </header>
       <ArchiveImportsPanel items={archiveImports} error={archiveError} />
       {scanStatus ? <ScanStatusPanel status={scanStatus} error={scanError} /> : null}
-      <p className="mb-4 text-slate">Queued, running, and failed ingestion jobs. Retry a failed job to re-parse the same revision.</p>
+      <h2 className="mb-3 text-lg font-semibold tracking-tight">Ingestion jobs</h2>
       {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
       {items.length === 0 ? (
-        <p className="border border-dashed border-rule px-4 py-12 text-center text-slate">No jobs yet.</p>
+        <p className="rounded-xl border border-dashed border-rule bg-shelf px-4 py-16 text-center text-slate">No ingestion jobs yet.</p>
       ) : (
-        <Table>
+        <Table aria-label="Ingestion jobs">
           <TableHeader>
             <TableRow>
               <TableHead>Job</TableHead>
@@ -545,7 +568,7 @@ function JobsPage() {
                   <div className="font-mono text-[11px] text-slate">{job.documentId}</div>
                   {job.error ? <IngestionErrorDetails value={job.error} /> : null}
                 </TableCell>
-                <TableCell className="font-mono text-[11px] uppercase">{job.status}</TableCell>
+                <TableCell><span className={job.status === "failed" ? "rounded-md border border-stamp/40 bg-stamp/10 px-2 py-0.5 font-mono text-[11px] text-stamp" : job.status === "completed" ? "rounded-md border border-navy/30 bg-navy/10 px-2 py-0.5 font-mono text-[11px] text-navy" : "rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 font-mono text-[11px] text-amber-300"}>{job.status}</span></TableCell>
                 <TableCell className="font-mono text-xs">{job.attempt}</TableCell>
                 <TableCell className="text-right">
                   {job.status === "failed" ? (

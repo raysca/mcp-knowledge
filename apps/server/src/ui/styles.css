@@ -2,16 +2,16 @@
 @source ".";
 
 @theme {
-  --font-display: "Fraunces", ui-serif, Georgia, serif;
-  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --color-ink: #1e2a3b;
-  --color-navy: #3d5a80;
-  --color-paper: #eef1f5;
-  --color-shelf: #dbe3ee;
-  --color-rule: #b7c3d3;
-  --color-slate: #5b6b80;
-  --color-stamp: #b42318;
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-ink: #e6e9ef;
+  --color-navy: #4adec0;
+  --color-paper: #0b0d10;
+  --color-shelf: #14171c;
+  --color-rule: #232830;
+  --color-slate: #8a94a6;
+  --color-stamp: #ff7b72;
 }
 
 html,
@@ -25,6 +25,38 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-navy) 24%, transparent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-paper);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #343b46;
+  border: 2px solid var(--color-paper);
+  border-radius: 999px;
+}
+
+:focus-visible {
+  outline-color: var(--color-navy);
 }
 
 @media (prefers-reduced-motion: reduce) {

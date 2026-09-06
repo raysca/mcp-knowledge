@@ -69,9 +69,9 @@ function pages(location?: Record<string, unknown>): string {
   return start === end ? String(start) : `${start}–${end}`;
 }
 
-const field = "block text-xs font-medium uppercase tracking-wide text-slate";
+const field = "block text-xs font-medium text-slate";
 const selectClass =
-  "min-h-9 w-full rounded-sm border border-rule bg-paper px-2 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy";
+  "min-h-10 w-full rounded-lg border border-rule bg-[#0e1116] px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy";
 
 export function PlaygroundPage() {
   const [query, setQuery] = useState("");
@@ -156,11 +156,13 @@ export function PlaygroundPage() {
 
   return (
     <section>
-      <p className="mb-4 max-w-xl text-slate">
-        Same retrieval as HTTP and MCP. Ranks and fusion scores come from the explain API.
-      </p>
+      <header className="mb-7">
+        <h1 className="text-3xl font-semibold tracking-tight">Playground</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate">Test the same retrieval path used by MCP and REST. Compare modes, narrow the corpus, and inspect why each result won.</p>
+      </header>
+      <div className="grid gap-6 lg:grid-cols-[minmax(18rem,0.75fr)_minmax(0,1.25fr)] lg:items-start">
       <form
-        className="mb-8 grid gap-3 sm:grid-cols-2"
+        className="grid gap-4 rounded-xl border border-rule bg-shelf p-5 sm:grid-cols-2"
         onSubmit={(e) => {
           e.preventDefault();
           void search();
@@ -175,7 +177,7 @@ export function PlaygroundPage() {
             placeholder="What are the cancellation terms?"
           />
         </label>
-        <label>
+        <label className="sm:col-span-2">
           <span className={field}>Collection filter</span>
           <select
             className={`mt-1 ${selectClass}`}
@@ -190,7 +192,7 @@ export function PlaygroundPage() {
             ))}
           </select>
         </label>
-        <label>
+        <label className="sm:col-span-2">
           <span className={field}>Document filter</span>
           <select
             className={`mt-1 ${selectClass}`}
@@ -250,14 +252,15 @@ export function PlaygroundPage() {
           Explain
         </label>
         <div className="sm:col-span-2">
-          <Button type="submit" disabled={busy || !query.trim()}>
+          <Button className="w-full" type="submit" disabled={busy || !query.trim()}>
             {busy ? "Searching…" : "Search"}
           </Button>
         </div>
       </form>
-      {error ? <p className="mb-3 text-sm text-stamp">{error}</p> : null}
+      <div className="min-w-0">
+      {error ? <p className="mb-4 rounded-lg border border-stamp/30 bg-stamp/5 p-3 text-sm text-stamp">{error}</p> : null}
       {result ? (
-        <div className="mb-4 text-sm text-slate">
+        <div className="mb-4 rounded-lg border border-rule bg-[#0e1116] px-4 py-3 text-sm text-slate">
           {result.timings ? (
             <p>
               {result.timings.totalMs.toFixed(0)} ms
@@ -277,10 +280,10 @@ export function PlaygroundPage() {
         </div>
       ) : null}
       {hit ? (
-        <article className="border border-rule bg-shelf/40 p-4">
-          <p className="font-mono text-[11px] uppercase tracking-wide text-navy">Result #{hit.ranking.finalRank}</p>
-          <h2 className="font-display text-2xl">{hit.title ?? hit.documentId}</h2>
-          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+        <article className="rounded-xl border border-rule bg-shelf p-5">
+          <p className="font-mono text-[11px] text-navy">Result #{hit.ranking.finalRank}</p>
+          <h2 className="mt-1 break-words font-display text-2xl font-semibold tracking-tight">{hit.title ?? hit.documentId}</h2>
+          <dl className="mt-4 grid gap-3 rounded-lg border border-rule bg-[#0e1116] p-4 text-sm sm:grid-cols-2">
             <div>
               <dt className={field}>Section</dt>
               <dd>{hit.headingPath.length ? hit.headingPath.join(" > ") : "—"}</dd>
@@ -308,7 +311,7 @@ export function PlaygroundPage() {
               </dd>
             </div>
           </dl>
-          <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap border border-rule bg-paper p-3 text-sm">
+          <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-rule bg-paper p-4 text-sm leading-6">
             {hit.content}
           </pre>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -329,14 +332,21 @@ export function PlaygroundPage() {
             <Button variant="outline" size="sm" onClick={() => void expandHit(hit.chunkId)}>
               Expand neighbors
             </Button>
-            <a className="inline-flex h-8 items-center px-2 text-sm text-navy underline" href={`/api/v1/documents/${hit.documentId}/file`}>
+            <a className="inline-flex h-8 items-center px-2 text-sm text-navy underline decoration-navy/40 underline-offset-4 hover:text-ink" href={`/api/v1/documents/${hit.documentId}/file`}>
               Open document
             </a>
           </div>
         </article>
       ) : result ? (
-        <p className="border border-dashed border-rule px-4 py-12 text-center text-slate">No hits.</p>
-      ) : null}
+        <p className="rounded-xl border border-dashed border-rule bg-shelf px-4 py-16 text-center text-slate">No results matched this query and filter set.</p>
+      ) : (
+        <div className="rounded-xl border border-dashed border-rule bg-shelf px-6 py-20 text-center">
+          <p className="font-medium text-ink">Ready to test your corpus</p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate">Enter a query, choose a retrieval mode, and run an explained search to inspect ranks, provenance, and timing.</p>
+        </div>
+      )}
+      </div>
+      </div>
     </section>
   );
 }
