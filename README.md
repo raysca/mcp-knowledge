@@ -2,14 +2,17 @@
 
 # MCP Knowledge
 
-**Private, self-hosted document retrieval for local RAG and MCP — in one Docker container.**
+**Private document retrieval with a built-in dashboard and explainable search playground — in one Docker container.**
 
 Turn PDFs, Office files, Markdown, HTML, folders, URLs, and ZIP archives into a
-searchable knowledge base. Connect Claude, Cursor, or any Streamable HTTP MCP
-client. Embeddings run locally with no hosted model or paid API key.
+searchable knowledge base. Manage it visually, prove retrieval quality on your
+own corpus, then connect any MCP or REST client. Pair it with a local model
+runtime for an end-to-end local RAG setup.
 
 [**Run it now ↓**](#quick-start) ·
+[Dashboard and playground](#dashboard-and-playground) ·
 [Connect an MCP client](#connect-an-mcp-client) ·
+[Local LLMs](#keep-the-whole-rag-path-local) ·
 [Live overview](https://raysca.github.io/mcp-knowledge/) ·
 [Documentation](#documentation)
 
@@ -58,13 +61,41 @@ cd mcp-knowledge
 docker compose up -d
 ```
 
+## Dashboard and playground
+
+The container includes a complete browser workspace at
+[http://127.0.0.1:3000](http://127.0.0.1:3000). You do not need to learn the API
+before you can build and evaluate a corpus.
+
+| Surface | What it lets you do |
+| --- | --- |
+| **Documents** | Upload, download, delete, and reindex files; inspect document metadata and parsed chunks. |
+| **Collections** | Organize the corpus and create narrower retrieval boundaries. |
+| **Jobs** | Follow ingestion, directory scans, and ZIP imports; see actionable failures and retry jobs. |
+| **Playground** | Search the same path used by MCP and REST, with collection, document, and metadata filters. |
+
+The playground is more than a demo. Switch between hybrid, vector, and lexical
+search; expand neighboring or section context; and inspect matched terms,
+source locations, final/vector/lexical ranks, fusion scores, and per-stage
+timing. This makes retrieval quality visible before an LLM is allowed to depend
+on it.
+
+A practical first run is:
+
+1. Upload a file from **Documents** and watch it move to `ready`.
+2. Open its detail view to inspect the parsed chunks and source metadata.
+3. Query it in **Playground**, compare modes, and check why the best result won.
+4. Connect an MCP client or application only after the retrieval behavior looks right.
+
 ## What it is for
 
+- Build and operate a local knowledge base from a browser, without starting
+  with API calls.
+- Evaluate and debug retrieval against real documents before integrating an
+  LLM.
 - Give Claude, Cursor, and other MCP clients searchable access to private
   documents.
 - Add a ready-made local retrieval layer to an application through REST.
-- Inspect hybrid, vector, and lexical ranking without sending document content
-  to a hosted embedding service.
 
 This project provides retrieval, not answer generation. Your MCP client or
 application decides how to use the returned passages.
@@ -73,11 +104,14 @@ application decides how to use the returned passages.
 
 - **Local embeddings** — the MiniLM model is vendored and runs on your machine;
   no hosted model account is required.
-- **MCP and REST together** — one service, one indexed corpus, one port.
+- **Built-in dashboard** — manage documents and collections, inspect chunks,
+  and monitor or retry ingestion from the browser.
+- **Explainable playground** — compare retrieval modes, filter the corpus,
+  expand context, and inspect ranks, provenance, matched terms, and timing.
+- **MCP and REST together** — the same corpus and retrieval behavior proven in
+  the playground, exposed on one port.
 - **Explainable hybrid search** — every result can include its vector rank,
   lexical rank, and reciprocal-rank-fusion score.
-- **Built-in playground** — compare hybrid, vector, and lexical results at
-  `/playground` before integrating a client.
 - **Flexible ingestion** — upload files and ZIP archives, watch a local folder,
   or ingest an allowed public URL.
 - **Common document formats** — PDF, Word, PowerPoint, Excel, HTML, Markdown,
@@ -151,6 +185,27 @@ The response shows the `key_…` secret once; only its hash is stored. Omit
 `scopes` to create a read-only key. Allowed scopes are `read`, `write`, and
 `admin`.
 
+## Keep the whole RAG path local
+
+MCP Knowledge handles retrieval, not answer generation. That separation lets
+you choose the inference layer without moving the corpus. Use an MCP-capable
+local application backed by Ollama, LM Studio, llama.cpp, or another local
+model runtime; alternatively, call the REST API from an application you
+control.
+
+```mermaid
+flowchart LR
+    D[Private documents] --> K["MCP Knowledge<br/>local retrieval"]
+    K --> A["Local application<br/>MCP or REST"]
+    A --> L["Local LLM runtime<br/>Ollama / LM Studio / llama.cpp"]
+```
+
+When each component runs on the same device and binds to loopback, document
+content does not need to leave the machine. This is an available deployment
+property, not a blanket guarantee: URL ingestion makes outbound requests, and
+remote models, plugins, or telemetry configured in the chosen client create
+their own privacy boundaries.
+
 ## Upload and search
 
 Open the dashboard at [http://127.0.0.1:3000](http://127.0.0.1:3000), or use
@@ -186,7 +241,7 @@ flowchart LR
     D --> H{"Hybrid search<br/>RRF"}
     H --> REST[REST]
     H --> MCP[MCP]
-    H --> UI[Playground]
+    H --> UI[Dashboard and playground]
 ```
 
 Parsing runs in a subprocess and embedding runs in a worker thread, isolating

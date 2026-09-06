@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MCP Knowledge — private document retrieval for local RAG</title>
-<meta name="description" content="Self-hosted document retrieval for local RAG and MCP. Run local embeddings, explainable hybrid search, REST, and a playground in one Docker container." />
+<title>MCP Knowledge — local RAG dashboard, playground, and retrieval API</title>
+<meta name="description" content="Private document retrieval for local RAG with a built-in dashboard, explainable search playground, MCP, and REST in one Docker container." />
 <meta name="color-scheme" content="dark" />
 <meta name="theme-color" content="#0B0D10" />
 
 <meta property="og:type" content="website" />
-<meta property="og:title" content="MCP Knowledge — private document retrieval for local RAG" />
-<meta property="og:description" content="Private document retrieval for local RAG and MCP. Local embeddings, explainable hybrid search, one Docker container." />
+<meta property="og:title" content="MCP Knowledge — local RAG you can see, test, and connect" />
+<meta property="og:description" content="Manage a private corpus in the dashboard, prove retrieval in the playground, then connect it over MCP or REST." />
 <meta property="og:url" content="https://raysca.github.io/mcp-knowledge/" />
 <meta name="twitter:card" content="summary" />
 
@@ -231,6 +231,43 @@
   .terminal .k { color: #8ab4f8; }
   .terminal .ok { color: var(--accent); }
 
+  /* ---------------- dashboard preview ---------------- */
+  .product-window {
+    background: var(--bg-alt);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
+  }
+  .product-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 16px 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .product-name { font-size: 0.82rem; font-weight: 600; padding-bottom: 12px; }
+  .product-tabs { display: flex; gap: 2px; overflow-x: auto; }
+  .product-tab { color: var(--dim); font-size: 0.7rem; padding: 8px 8px 10px; white-space: nowrap; }
+  .product-tab.active { color: var(--text); border-bottom: 2px solid var(--accent); }
+  .product-body { padding: 20px; }
+  .product-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+  .product-toolbar strong { display: block; font-size: 0.95rem; }
+  .product-toolbar span { display: block; color: var(--dim); font-size: 0.72rem; }
+  .product-toolbar .mini-action { color: #062019; background: var(--accent); border-radius: 6px; padding: 7px 11px; font-weight: 600; }
+  .document-list { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .document-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+  .document-row:last-child { border-bottom: none; }
+  .document-row strong { display: block; font-size: 0.8rem; font-weight: 500; }
+  .document-row small { display: block; color: var(--dim); font-family: var(--mono); font-size: 0.64rem; margin-top: 2px; }
+  .ready { color: var(--accent); font-family: var(--mono); font-size: 0.66rem; align-self: center; }
+  .product-status { display: flex; gap: 10px; margin-top: 12px; }
+  .status-item { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; }
+  .status-item span { display: block; color: var(--dim); font-size: 0.66rem; }
+  .status-item strong { display: block; font-family: var(--mono); font-size: 0.78rem; margin-top: 2px; font-weight: 500; }
+
   /* ---------------- stats ---------------- */
   .stats {
     display: grid;
@@ -424,6 +461,15 @@
   .feature h3 { font-size: 0.98rem; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
   .feature p { margin: 0; font-size: 0.89rem; color: var(--muted); line-height: 1.6; }
 
+  /* ---------------- local stack ---------------- */
+  .local-stack { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; margin-top: 36px; }
+  .stack-node { position: relative; border-top: 2px solid var(--line); padding-top: 16px; }
+  .stack-node.primary { border-color: var(--accent); }
+  .stack-node:not(:last-child)::after { content: "→"; position: absolute; right: -20px; top: 11px; color: var(--dim); }
+  .stack-node strong { display: block; font-size: 0.92rem; margin-bottom: 5px; }
+  .stack-node span { display: block; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
+  .privacy-note { margin: 30px 0 0; padding: 18px 20px; border-left: 2px solid var(--accent); background: var(--surface); color: var(--muted); font-size: 0.9rem; max-width: 76ch; }
+
   /* ---------------- quick start ---------------- */
   .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
   .quick h3 {
@@ -508,6 +554,8 @@
     .stat:nth-child(2) { border-right: none; }
     .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
     .nav-links a.hide-sm { display: none; }
+    .local-stack { grid-template-columns: repeat(2, 1fr); }
+    .stack-node:nth-child(2)::after { display: none; }
     section { padding: 68px 0; }
   }
   @media (max-width: 600px) {
@@ -517,6 +565,11 @@
     .stat:last-child { border-bottom: none; }
     .terminal pre { font-size: 0.76rem; }
     .quick { gap: 20px; }
+    .product-bar { align-items: flex-start; flex-direction: column; }
+    .product-name { padding-bottom: 0; }
+    .product-tabs { width: 100%; }
+    .local-stack { grid-template-columns: 1fr; gap: 20px; }
+    .stack-node:not(:last-child)::after { display: none; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -530,9 +583,9 @@
   <div class="wrap nav">
     <a class="wordmark" href="#top"><span class="glyph" aria-hidden="true"></span>MCP Knowledge</a>
     <nav class="nav-links" aria-label="Primary">
-      <a class="hide-sm" href="#ranking">Ranking</a>
+      <a class="hide-sm" href="#ranking">Playground</a>
       <a class="hide-sm" href="#how">How it works</a>
-      <a class="hide-sm" href="#fit">When to use it</a>
+      <a class="hide-sm" href="#local">Local LLMs</a>
       <a class="hide-sm" href="#start">Quick start</a>
       <a class="btn btn-secondary btn-sm" href="https://github.com/raysca/mcp-knowledge">GitHub</a>
     </nav>
@@ -542,49 +595,52 @@
 <main id="top">
 
   <!-- ============ hero ============ -->
-  <section class="hero wrap">
+  <section class="hero wrap" id="dashboard">
     <div>
-      <p class="eyebrow">Private retrieval for local RAG</p>
-      <h1>Your documents, searchable over MCP and REST.</h1>
+      <p class="eyebrow">A complete local retrieval workspace</p>
+      <h1>Private document retrieval you can see, test, and connect.</h1>
       <p class="lede">
-        Run a private retrieval layer on hardware you control. MCP Knowledge parses
-        common document formats, embeds them locally, and returns explainable hybrid
-        results to MCP clients or your own applications. Your client decides how to
-        generate the answer.
+        Upload, organize, inspect, and monitor your corpus in the built-in dashboard.
+        Prove retrieval quality in the playground, then connect the same results to
+        local LLM applications over MCP or REST.
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="#start">Run the container</a>
-        <a class="btn btn-secondary" href="https://github.com/raysca/mcp-knowledge">View source</a>
+        <a class="btn btn-primary" href="#start">Run it and open the dashboard</a>
+        <a class="btn btn-secondary" href="#ranking">See the playground</a>
       </div>
       <p class="meta-row">
+        <span>Dashboard included</span>
         <span>No hosted model required</span>
         <span>linux/amd64 + arm64</span>
-        <span>MIT licensed</span>
         <span>v0.1</span>
       </p>
     </div>
 
-    <div class="terminal">
-      <div class="terminal-bar">
-        <i></i><i></i><i></i><b>bash</b>
+    <div class="product-window" aria-label="Dashboard preview">
+      <div class="product-bar">
+        <span class="product-name">MCP Knowledge</span>
+        <div class="product-tabs" aria-hidden="true">
+          <span class="product-tab active">Documents</span>
+          <span class="product-tab">Collections</span>
+          <span class="product-tab">Jobs</span>
+          <span class="product-tab">Playground</span>
+        </div>
       </div>
-<pre><span class="c"># Run the published multi-architecture image</span>
-<span class="p">$</span> docker run -d --name mcp-knowledge \
-    -p 127.0.0.1:3000:3000 \
-    -v mcp-knowledge-data:/app/data \
-    ghcr.io/raysca/mcp-knowledge:main
-<span class="ok">✔</span> mcp-knowledge  <span class="c">healthy</span>
-
-<span class="c"># index a document</span>
-<span class="p">$</span> curl -F <span class="s">"file=@handbook.pdf"</span> \
-    localhost:3000/api/v1/documents
-<span class="ok">→</span> doc_01j9c8x  <span class="c">ready</span>
-
-<span class="c"># ask it something</span>
-<span class="p">$</span> curl -d <span class="s">'{"query":"refunds"}'</span> \
-    localhost:3000/api/v1/search
-<span class="ok">→</span> 8 hits  <span class="c">9 ms</span>
-</pre>
+      <div class="product-body">
+        <div class="product-toolbar">
+          <div><strong>Your documents</strong><span>128 ready · 2 processing</span></div>
+          <span class="mini-action">Upload file</span>
+        </div>
+        <div class="document-list">
+          <div class="document-row"><div><strong>engineering-handbook.pdf</strong><small>42 pages · 186 chunks</small></div><span class="ready">ready</span></div>
+          <div class="document-row"><div><strong>incident-runbooks.zip</strong><small>17 files imported</small></div><span class="ready">ready</span></div>
+          <div class="document-row"><div><strong>product-specifications.docx</strong><small>Updated 2 minutes ago</small></div><span class="ready">ready</span></div>
+        </div>
+        <div class="product-status">
+          <div class="status-item"><span>Ingestion queue</span><strong>2 processing</strong></div>
+          <div class="status-item"><span>Last directory scan</span><strong>24 added</strong></div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -619,29 +675,29 @@
   <section id="ranking">
     <div class="wrap explain">
       <div>
-        <p class="eyebrow">Explainable by default</p>
-        <h2 class="h">Not a black box.</h2>
+        <p class="eyebrow">The built-in playground</p>
+        <h2 class="h">Test retrieval before you wire it in.</h2>
         <p style="color:var(--muted);margin:0;">
-          Most retrieval systems hand back a paragraph and a shrug. Every hit here
-          carries its full provenance: which method found it, where it placed on each
-          side, and the fused score that decided the final order.
+          Search your real corpus from the browser using the same retrieval path as
+          MCP and REST. Tune the query, filters, mode, result limit, and context before
+          you write integration code.
         </p>
         <ul class="explain-list">
           <li>
-            <strong>Reciprocal Rank Fusion, k=60</strong>
-            <span>Vector and lexical candidates merged by a formula you can recompute by hand — no opaque reranking model in the middle.</span>
+            <strong>Compare three retrieval modes</strong>
+            <span>Switch between hybrid, vector, and lexical search to see which method is carrying a query.</span>
           </li>
           <li>
-            <strong>Traceable source location</strong>
-            <span>Chunks point back to a heading, page, or section of the original file, not just a filename.</span>
+            <strong>Filter the corpus precisely</strong>
+            <span>Limit searches by collection, document, or metadata without constructing API payloads by hand.</span>
           </li>
           <li>
-            <strong>No stemming surprises</strong>
-            <span>Lexical search matches SKUs, error codes, and part numbers literally instead of quietly stemming them away.</span>
+            <strong>Inspect context and provenance</strong>
+            <span>Expand neighboring chunks and trace each result back to its document, heading, page, or section.</span>
           </li>
           <li>
-            <strong>A playground to prove it</strong>
-            <span>The bundled dashboard runs hybrid, vector, and lexical side by side on your own documents.</span>
+            <strong>Explain rank and latency</strong>
+            <span>See vector rank, lexical rank, fusion score, matched terms, and per-stage timing for every search.</span>
           </li>
         </ul>
       </div>
@@ -719,11 +775,12 @@
       </div>
 
       <div class="fanout">
-        <span class="label">One result set, three surfaces</span>
+        <span class="label">One corpus, four surfaces</span>
         <div class="surfaces">
-          <span class="surface-chip">REST /api/v1</span>
+          <span class="surface-chip">Dashboard</span>
+          <span class="surface-chip">Playground</span>
           <span class="surface-chip">MCP /mcp</span>
-          <span class="surface-chip">Dashboard + playground</span>
+          <span class="surface-chip">REST /api/v1</span>
         </div>
       </div>
     </div>
@@ -734,34 +791,52 @@
     <div class="wrap">
       <div class="section-head">
         <p class="eyebrow">What you get</p>
-        <h2 class="h">Infrastructure, not another chat window.</h2>
+        <h2 class="h">A complete local workflow, not just an endpoint.</h2>
       </div>
       <div class="features">
         <div class="feature">
-          <h3>MCP-native</h3>
-          <p>A Streamable HTTP MCP endpoint sits beside the REST API on the same origin and port. Point Claude, Cursor, or any MCP client straight at it.</p>
+          <h3>Dashboard operations</h3>
+          <p>Upload, download, reindex, and remove documents; organize collections; inspect parsed chunks; and manage the corpus without a CLI.</p>
         </div>
         <div class="feature">
-          <h3>No hosted model API key</h3>
-          <p>Embeddings run locally on a vendored MiniLM model. No OpenAI, Anthropic, or Cohere account is needed to ingest or search a single document.</p>
+          <h3>Visible ingestion</h3>
+          <p>Watch documents move from processing to ready, follow folder scans and ZIP imports, and retry failed jobs with actionable error guidance.</p>
         </div>
         <div class="feature">
-          <h3>One process, one container</h3>
-          <p><code>Bun.serve()</code> serves dashboard, REST, and MCP together. libSQL and the local filesystem hold the rest — no external database to run.</p>
+          <h3>Retrieval playground</h3>
+          <p>Compare search modes, apply filters, expand context, and inspect provenance, ranks, matched terms, and timing on your own documents.</p>
         </div>
         <div class="feature">
-          <h3>Isolated by design</h3>
-          <p>Parsing is a spawned subprocess, embedding is a worker thread. Malformed or hostile input can't take the serving process down with it.</p>
+          <h3>MCP and REST</h3>
+          <p>The dashboard and playground exercise the same corpus and retrieval behavior exposed to MCP clients and custom applications.</p>
         </div>
         <div class="feature">
-          <h3>Rebuildable by design</h3>
-          <p>Originals are canonical. Chunks, embeddings, and indexes can all be regenerated from them, and backup/restore is documented rather than assumed.</p>
+          <h3>Local LLM ready</h3>
+          <p>Pair the retrieval service with an MCP-capable local application and an Ollama, LM Studio, or llama.cpp model runtime.</p>
         </div>
         <div class="feature">
-          <h3>Multi-arch and gated</h3>
-          <p>Published for linux/amd64 and linux/arm64, smoke-tested offline on both architectures before any tag is pushed.</p>
+          <h3>One private container</h3>
+          <p>Local embeddings, originals, chunks, and indexes run together with no hosted model API or external database required.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ local LLM ============ -->
+  <section id="local">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">End-to-end local RAG</p>
+        <h2 class="h">Keep retrieval and generation on your machine.</h2>
+        <p>Connect MCP Knowledge to an MCP-capable local application backed by your preferred local model runtime, or call REST from an application you control.</p>
+      </div>
+      <div class="local-stack" aria-label="Fully local RAG path">
+        <div class="stack-node"><strong>Private documents</strong><span>PDF, Office, Markdown, HTML, folders, URLs, and ZIP archives</span></div>
+        <div class="stack-node primary"><strong>MCP Knowledge</strong><span>Local parsing, embeddings, storage, hybrid search, and inspection</span></div>
+        <div class="stack-node"><strong>Local application</strong><span>An MCP-capable client or your own application using the REST API</span></div>
+        <div class="stack-node"><strong>Local model runtime</strong><span>Ollama, LM Studio, llama.cpp, or another model running on your hardware</span></div>
+      </div>
+      <p class="privacy-note"><strong style="color:var(--text);">A fully local deployment is possible:</strong> bind every component to loopback and avoid external services, and document content does not need to leave the machine. URL imports make outbound requests, and any remote model or telemetry configured in your chosen client has its own privacy boundary.</p>
     </div>
   </section>
 
@@ -837,7 +912,7 @@
       </div>
 
       <ul class="notes">
-        <li>Dashboard and playground at <code>http://127.0.0.1:3000</code>; MCP at <code>/mcp</code>, same origin, same port.</li>
+        <li>Open the dashboard at <code>http://127.0.0.1:3000</code>. Upload a file, watch it become ready, then validate retrieval at <code>/playground</code>.</li>
         <li>MCP tools are read-only — <code>search_documents</code>, <code>get_document</code>, <code>get_chunk</code>, <code>list_documents</code>, <code>list_collections</code>. Use REST to write.</li>
         <li>The loopback-only setup above has no authentication. Set <code>DASHBOARD_PASSPHRASE</code> and generate an API key before exposing it to a LAN, proxy, or tunnel.</li>
         <li>Everything persists in the <code>mcp-knowledge-data</code> named Docker volume. Removing the container does not remove its data.</li>
@@ -850,8 +925,8 @@
   <section>
     <div class="wrap">
       <div class="closer">
-        <h2>Private retrieval, ready for your client.</h2>
-        <p>One command to run it, one endpoint for MCP, and an inspectable ranking for every result.</p>
+        <h2>Operate it visually. Prove it locally. Connect it anywhere.</h2>
+        <p>The dashboard manages your corpus, the playground explains retrieval, and MCP or REST brings the results to your chosen local model.</p>
         <div class="cta-row">
           <a class="btn btn-primary" href="https://github.com/raysca/mcp-knowledge#quick-start">Read the setup guide</a>
           <a class="btn btn-secondary" href="https://github.com/raysca/mcp-knowledge">Star on GitHub</a>
