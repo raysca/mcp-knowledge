@@ -21,8 +21,25 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test
 
-  publish:
+  # Builds the real Dockerfile for both platforms and boots each one (online
+  # and fully offline) via scripts/release/smoke.ts - this is what actually
+  # would have caught the missing-nested-node_modules bug (drizzle-orm,
+  # fast-glob, adm-zip): the container crashes on startup before /health ever
+  # responds, so wait_for_health fails and this job fails, before anything is
+  # ever pushed. Runs on every push and PR, not just before a publish.
+  platform-smoke:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - uses: docker/setup-buildx-action@v3
+      - run: bun run release:test-platforms
+
+  publish:
+    needs: [test, platform-smoke]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
