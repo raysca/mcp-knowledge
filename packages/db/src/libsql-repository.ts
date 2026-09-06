@@ -1,6 +1,8 @@
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   ApiKey,
+  ArchiveImport,
+  ArchiveImportEntry,
   Collection,
   Document,
   DocumentRevision,
@@ -17,6 +19,7 @@ import { createClient, type Client } from "@libsql/client";
 import { createLibsqlDb } from "./libsql.ts";
 import {
   apiKeys,
+  archiveImports,
   collections,
   documentChunks,
   documentRevisions,
@@ -496,6 +499,129 @@ RETURNING *`,
   async getJob(id: string): Promise<IngestionJob | null> {
     const rows = await this.db.select().from(ingestionJobs).where(eq(ingestionJobs.id, id)).limit(1);
     return rows[0] ? toJob(rows[0]) : null;
+  }
+
+  async createArchiveImport(input: {
+    id: string;
+    originalFilename: string;
+    collectionId?: string;
+    stagingStorageKey: string;
+    metadata: Record<string, unknown>;
+  }): Promise<ArchiveImport> {
+    const now = new Date();
+    const row = {
+      id: input.id,
+      collectionId: input.collectionId,
+      originalFilename: input.originalFilename,
+      metadata: input.metadata,
+      state: "queued" as const,
+      stagingStorageKey: input.stagingStorageKey,
+      entries: [] as ArchiveImportEntry[],
+      createdAt: now,
+    };
+    await this.db.insert(archiveImports).values(row);
+    return toArchiveImport({
+      ...row,
+      error: null,
+      startedAt: null,
+      completedAt: null,
+    });
+  }
+
+  async getArchiveImport(id: string): Promise<ArchiveImport | null> {
+    const rows = await this.db.select().from(archiveImports).where(eq(archiveImports.id, id)).limit(1);
+    return rows[0] ? toArchiveImport(rows[0]) : null;
+  }
+
+  async getArchiveImportStagingKey(id: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ stagingStorageKey: archiveImports.stagingStorageKey })
+      .from(archiveImports)
+      .where(eq(archiveImports.id, id))
+      .limit(1);
+    return rows[0]?.stagingStorageKey ?? null;
+  }
+
+  async listArchiveImports(q: { cursor?: string; limit: number }): Promise<{
+    items: ArchiveImport[];
+    nextCursor?: string;
+  }> {
+    const cursorCondition = q.cursor
+      ? (() => {
+          const { createdAt, id } = decodeCursor(q.cursor!);
+          return or(
+            lt(archiveImports.createdAt, new Date(createdAt)),
+            and(eq(archiveImports.createdAt, new Date(createdAt)), lt(archiveImports.id, id)),
+          );
+        })()
+      : undefined;
+    const rows = await this.db
+      .select()
+      .from(archiveImports)
+      .where(cursorCondition)
+      .orderBy(desc(archiveImports.createdAt), desc(archiveImports.id))
+      .limit(q.limit + 1);
+    const hasMore = rows.length > q.limit;
+    const items = rows.slice(0, q.limit).map(toArchiveImport);
+    const last = items[items.length - 1];
+    return {
+      items,
+      nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.id) : undefined,
+    };
+  }
+
+  async claimArchiveImport(workerId: string, leaseMs: number): Promise<ArchiveImport | null> {
+    return this.runInTransaction(async () => {
+      const now = Date.now();
+      const leaseBefore = now - leaseMs;
+      const result = await this.client.execute({
+        sql: `UPDATE archive_imports
+SET state = 'extracting', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), entries = '[]'
+WHERE id = (
+  SELECT id FROM archive_imports
+  WHERE state = 'queued'
+     OR (state = 'extracting' AND locked_at < ?)
+  ORDER BY created_at
+  LIMIT 1
+)
+AND state IN ('queued', 'extracting')
+RETURNING *`,
+        args: [workerId, now, now, leaseBefore],
+      });
+      const row = result.rows[0];
+      if (!row) return null;
+      return archiveImportFromRaw(row);
+    });
+  }
+
+  async appendArchiveImportEntry(id: string, entry: ArchiveImportEntry): Promise<void> {
+    await this.client.execute({
+      sql: `UPDATE archive_imports SET entries = json_insert(entries, '$[#]', json(?)) WHERE id = ?`,
+      args: [JSON.stringify(entry), id],
+    });
+  }
+
+  async finishArchiveImport(id: string, state: "completed" | "completed_with_errors"): Promise<void> {
+    const now = new Date();
+    await this.db
+      .update(archiveImports)
+      .set({ state, completedAt: now, lockedBy: null, lockedAt: null, stagingStorageKey: null })
+      .where(eq(archiveImports.id, id));
+  }
+
+  async failArchiveImport(id: string, error: string): Promise<void> {
+    const now = new Date();
+    await this.db
+      .update(archiveImports)
+      .set({
+        state: "failed",
+        error,
+        completedAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        stagingStorageKey: null,
+      })
+      .where(eq(archiveImports.id, id));
   }
 
   async softDeleteDocument(id: string): Promise<void> {
@@ -1029,5 +1155,46 @@ function jobFromRaw(row: Record<string, unknown>): IngestionJob {
     error: row.error as string | null,
     createdAt: asDate(row.created_at) ?? new Date(),
     updatedAt: asDate(row.updated_at) ?? new Date(),
+  });
+}
+
+function toArchiveImport(row: {
+  id: string;
+  collectionId?: string | null;
+  originalFilename: string;
+  metadata: Record<string, unknown>;
+  state: string;
+  entries: ArchiveImportEntry[];
+  error?: string | null;
+  createdAt: Date;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+}): ArchiveImport {
+  return {
+    id: row.id,
+    collectionId: row.collectionId ?? undefined,
+    originalFilename: row.originalFilename,
+    metadata: row.metadata,
+    state: row.state as ArchiveImport["state"],
+    entries: row.entries,
+    error: row.error ?? undefined,
+    createdAt: row.createdAt,
+    startedAt: row.startedAt ?? undefined,
+    completedAt: row.completedAt ?? undefined,
+  };
+}
+
+function archiveImportFromRaw(row: Record<string, unknown>): ArchiveImport {
+  return toArchiveImport({
+    id: String(row.id),
+    collectionId: row.collection_id as string | null,
+    originalFilename: String(row.original_filename),
+    metadata: JSON.parse(String(row.metadata ?? "{}")),
+    state: String(row.state),
+    entries: JSON.parse(String(row.entries ?? "[]")),
+    error: row.error as string | null,
+    createdAt: asDate(row.created_at) ?? new Date(),
+    startedAt: asDate(row.started_at) ?? null,
+    completedAt: asDate(row.completed_at) ?? null,
   });
 }

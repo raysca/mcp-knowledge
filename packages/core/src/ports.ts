@@ -7,6 +7,7 @@ import type {
   SourceFileRecord,
   SourceScanCycle,
 } from "./domain/source.ts";
+import type { ArchiveImport, ArchiveImportEntry } from "./domain/archive.ts";
 
 export type DocumentParser = {
   name: string;
@@ -129,6 +130,23 @@ export type KnowledgeRepository = {
     cycleId: string;
     limitReached: boolean;
   }): Promise<void>;
+  createArchiveImport(input: {
+    id: string;
+    originalFilename: string;
+    collectionId?: string;
+    stagingStorageKey: string;
+    metadata: Record<string, unknown>;
+  }): Promise<ArchiveImport>;
+  getArchiveImport(id: string): Promise<ArchiveImport | null>;
+  getArchiveImportStagingKey(id: string): Promise<string | null>;
+  listArchiveImports(q: {
+    cursor?: string;
+    limit: number;
+  }): Promise<{ items: ArchiveImport[]; nextCursor?: string }>;
+  claimArchiveImport(workerId: string, leaseMs: number): Promise<ArchiveImport | null>;
+  appendArchiveImportEntry(id: string, entry: ArchiveImportEntry): Promise<void>;
+  finishArchiveImport(id: string, state: "completed" | "completed_with_errors"): Promise<void>;
+  failArchiveImport(id: string, error: string): Promise<void>;
 };
 
 export type BlobStore = {
