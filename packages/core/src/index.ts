@@ -24,6 +24,7 @@ export {
 export { assertSafeUrl, isBlockedIp } from "./ssrf.ts";
 export { DocumentService, originalStorageKey } from "./services/document-service.ts";
 export { extensionOf, isAllowedUpload, sniffMime } from "./mime.ts";
+export { AdmZipArchiveReader, type ArchiveEntry, type ArchiveReader } from "./archive/reader.ts";
 export type {
   Collection,
   Document,
