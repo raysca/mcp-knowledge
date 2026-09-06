@@ -1,12 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import type {
   ApiKeyService,
+  ArchiveImportService,
   CollectionService,
   DocumentService,
   SearchService,
   UrlIngestService,
 } from "@mcp-knowledge/core";
-import { AppError } from "@mcp-knowledge/core";
+import { AppError, extensionOf, type ArchiveImport, type ArchiveImportEntryOutcome } from "@mcp-knowledge/core";
 import type { AppEnv } from "../config/env.ts";
 import { handleMcp } from "../mcp/handler.ts";
 import type { StartupIngestionCoordinator } from "../startup-scan/coordinator.ts";
@@ -24,6 +25,7 @@ import {
 export type AppServices = {
   env: AppEnv;
   documents: DocumentService;
+  archives: ArchiveImportService;
   collections: CollectionService;
   search: SearchService;
   keys: ApiKeyService;
@@ -47,6 +49,35 @@ function documentJson(doc: Awaited<ReturnType<DocumentService["get"]>>) {
     latestError: doc.latestError ?? null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+function archiveImportJson(record: ArchiveImport) {
+  const counts: Record<ArchiveImportEntryOutcome | "examined", number> = {
+    examined: 0,
+    extracted: 0,
+    duplicate: 0,
+    unsupported: 0,
+    oversized: 0,
+    failed: 0,
+  };
+  const documentIds: string[] = [];
+  for (const entry of record.entries) {
+    counts.examined += 1;
+    counts[entry.outcome] += 1;
+    if (entry.outcome === "extracted" && entry.documentId) documentIds.push(entry.documentId);
+  }
+  return {
+    id: record.id,
+    originalFilename: record.originalFilename,
+    collectionId: record.collectionId ?? null,
+    state: record.state,
+    createdAt: record.createdAt.toISOString(),
+    startedAt: record.startedAt?.toISOString() ?? null,
+    completedAt: record.completedAt?.toISOString() ?? null,
+    counts,
+    documentIds,
+    error: record.error ?? null,
   };
 }
 
@@ -254,13 +285,23 @@ export async function handleRequest(
           requestId,
         );
       }
-      const bytes = new Uint8Array(await file.arrayBuffer());
+      const collectionId = form.get("collectionId");
       let metadata: Record<string, unknown> = {};
       const rawMeta = form.get("metadata");
       if (typeof rawMeta === "string" && rawMeta.length > 0) {
         metadata = JSON.parse(rawMeta) as Record<string, unknown>;
       }
-      const collectionId = form.get("collectionId");
+      if (extensionOf(file.name) === "zip") {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const { archiveId } = await svc.archives.stage({
+          filename: file.name,
+          bytes,
+          collectionId: typeof collectionId === "string" ? collectionId : undefined,
+          metadata,
+        });
+        return json({ archiveId, status: "queued" }, 202, requestId);
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await svc.documents.upload({
         filename: file.name,
         bytes,
@@ -329,6 +370,26 @@ export async function handleRequest(
       const id = decodeURIComponent(reindexMatch[1]!);
       const job = await svc.documents.reindex(id);
       return json(job, 202, requestId);
+    }
+
+    const archiveMatch = url.pathname.match(/^\/api\/v1\/archives\/([^/]+)$/);
+    if (archiveMatch && req.method === "GET") {
+      const id = decodeURIComponent(archiveMatch[1]!);
+      const record = await svc.archives.get(id);
+      return json(archiveImportJson(record), 200, requestId);
+    }
+
+    if (url.pathname === "/api/v1/archives" && req.method === "GET") {
+      const limit = clampLimit(url.searchParams.get("limit"), svc.env.MAX_LIST_LIMIT, 50);
+      const result = await svc.archives.list({
+        cursor: url.searchParams.get("cursor") ?? undefined,
+        limit,
+      });
+      return json(
+        { items: result.items.map(archiveImportJson), nextCursor: result.nextCursor ?? null },
+        200,
+        requestId,
+      );
     }
 
     if (url.pathname === "/api/v1/search" && req.method === "POST") {

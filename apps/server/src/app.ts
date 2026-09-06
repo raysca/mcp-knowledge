@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import {
   ApiKeyService,
+  ArchiveImportService,
   CollectionService,
   DocumentService,
   IngestionService,
@@ -56,12 +57,19 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   const lexical = new LibsqlLexicalIndex(env.DATABASE_URL);
   const ingestion = new IngestionService(repo, blobs, registry, countTokens, embedder, vectors, env);
   const documents = new DocumentService(repo, blobs, env.MAX_UPLOAD_BYTES);
+  const archives = new ArchiveImportService(repo, blobs, documents, {
+    MAX_UPLOAD_BYTES: env.MAX_UPLOAD_BYTES,
+    MAX_ARCHIVE_ENTRIES: env.MAX_ARCHIVE_ENTRIES,
+    MAX_ARCHIVE_UNCOMPRESSED_BYTES: env.MAX_ARCHIVE_UNCOMPRESSED_BYTES,
+    MAX_ARCHIVE_COMPRESSION_RATIO: env.MAX_ARCHIVE_COMPRESSION_RATIO,
+  });
   const stopWorker =
     env.ROLE === "api"
       ? () => undefined
       : startWorkerLoop({
           repo,
           ingestion,
+          archives,
           leaseMs: env.JOB_LEASE_MS,
           ingestionTimeoutMs: env.INGESTION_TIMEOUT_MS,
         });
@@ -99,6 +107,7 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   const services: AppServices = {
     env,
     documents,
+    archives,
     collections: new CollectionService(repo),
     search: new SearchService(embedder, vectors, lexical, repo, env),
     keys: new ApiKeyService(repo),
