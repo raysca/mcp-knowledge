@@ -1,5 +1,12 @@
 export { AppError, errorBody, type ErrorBody } from "./errors.ts";
 export {
+  logger,
+  serializeError,
+  type LogFields,
+  type Logger,
+  type SerializedError,
+} from "./logger.ts";
+export {
   PUBLIC_INGESTION_FAILURES,
   publicIngestionFailure,
   type IngestionFailureCode,
