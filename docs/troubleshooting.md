@@ -13,6 +13,8 @@ include parser output, paths, file contents, credentials, or stack traces.
 | `PAYLOAD_TOO_LARGE` | The upload exceeds the configured upload limit. | Split the file or reduce its size, then upload it again. |
 | `INGESTION_TIMEOUT` | Processing took too long. | Retry once from Jobs. If it fails again, inspect the checks below. |
 | `DOCUMENT_MALFORMED` | The document could not be parsed. | Re-export it from the source application, then upload it again. |
+| `ARCHIVE_TOO_LARGE` | The uploaded zip has too many entries or is too large uncompressed. | Split the archive into smaller zips, then upload each again. |
+| `ARCHIVE_MALFORMED` | The uploaded zip could not be read. | Re-create the zip archive, then upload it again. |
 
 An unrecognized failure is shown as `DOCUMENT_MALFORMED`; use Jobs and this
 guide rather than relying on a raw parser or worker message.

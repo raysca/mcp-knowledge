@@ -13,6 +13,27 @@ Any other extension is rejected before parsing (`DOCUMENT_UNSUPPORTED_FORMAT`).
 Content type is sniffed from file bytes/extension for storage, not used to
 widen or narrow the allow list.
 
+## Zip archives
+
+Uploading a `.zip` does not create one document — the server extracts every
+allowlisted entry (recursively, across subfolders) and ingests each as its
+own document, exactly as if uploaded individually. The upload response
+returns an `archiveId` (`GET /api/v1/archives/:id` to poll progress), not a
+document id.
+
+The zip container itself is never stored past extraction — only the
+documents it produces are canonical originals. A nested `.zip` inside the
+archive is not expanded; it is counted `unsupported`, same as any other
+disallowed extension.
+
+Whole-archive resource limits (checked from the zip's central directory
+before any entry is decompressed): `MAX_ARCHIVE_ENTRIES` (default `1024`)
+total entries, `MAX_ARCHIVE_UNCOMPRESSED_BYTES` (default 100 MiB) aggregate
+declared size. Exceeding either fails the entire import. A single entry
+exceeding `MAX_UPLOAD_BYTES`, or whose declared compression ratio exceeds
+`MAX_ARCHIVE_COMPRESSION_RATIO` (default `100`), is skipped without being
+decompressed — the rest of the archive still imports.
+
 ## OCR and password-protected files
 
 There is no OCR step. A PDF or image-only document with no extractable text
