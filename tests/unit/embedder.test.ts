@@ -11,4 +11,11 @@ describe("LocalTransformersEmbedder", () => {
     expect(vec).toHaveLength(384);
     expect(vec!.every((n) => Number.isFinite(n))).toBe(true);
   }, 120_000);
+
+  test("rejects new embedding work after it is stopped", async () => {
+    const embedder = new LocalTransformersEmbedder({ modelPath });
+    embedder.stop();
+
+    await expect(embedder.embed(["too late"])).rejects.toThrow("embedding worker is stopped");
+  });
 });

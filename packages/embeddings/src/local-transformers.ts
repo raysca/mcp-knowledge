@@ -15,6 +15,7 @@ export class LocalTransformersEmbedder implements Embedder {
   private readonly pending = new Map<string, Pending>();
   private readonly modelPath: string;
   private readonly workerUrl: URL;
+  private stopped = false;
 
   constructor(input: { modelPath: string; workerUrl?: URL }) {
     this.modelPath = input.modelPath;
@@ -38,7 +39,7 @@ export class LocalTransformersEmbedder implements Embedder {
       this.pending.clear();
       // ponytail: never Worker.terminate() after ONNX NAPI load — Bun 1.3.13 panics
       // (NAPI FATAL ERROR / SIGTRAP). Orphan the dead isolate and spawn a fresh Worker.
-      this.spawn(this.workerUrl);
+      if (!this.stopped) this.spawn(this.workerUrl);
     };
     this.worker.onerror = (e) => onFatal(new Error(`embedding worker crashed: ${e.message}`));
     this.worker.onmessageerror = () =>
@@ -46,6 +47,7 @@ export class LocalTransformersEmbedder implements Embedder {
   }
 
   embed(texts: string[]): Promise<number[][]> {
+    if (this.stopped) return Promise.reject(new Error("embedding worker is stopped"));
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -54,6 +56,7 @@ export class LocalTransformersEmbedder implements Embedder {
   }
 
   stop(): void {
+    this.stopped = true;
     (this.worker as Worker & { unref(): void }).unref();
   }
 }
