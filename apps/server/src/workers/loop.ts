@@ -1,10 +1,11 @@
 import { AppError, publicIngestionFailure, type IngestionService } from "@mcp-knowledge/core";
-import type { KnowledgeRepository } from "@mcp-knowledge/core";
+import type { ArchiveImportService, KnowledgeRepository } from "@mcp-knowledge/core";
 import { newId } from "@mcp-knowledge/core";
 
 export function startWorkerLoop(input: {
   repo: KnowledgeRepository;
   ingestion: IngestionService;
+  archives?: Pick<ArchiveImportService, "extract">;
   leaseMs: number;
   ingestionTimeoutMs: number;
 }): () => void {
@@ -19,6 +20,31 @@ export function startWorkerLoop(input: {
 
   async function tick() {
     while (!stopped) {
+      if (input.archives) {
+        let archiveImport: { id: string } | null = null;
+        try {
+          archiveImport = await input.repo.claimArchiveImport(workerId, input.leaseMs);
+        } catch (error) {
+          console.error("worker loop: claimArchiveImport failed", error);
+        }
+        if (archiveImport) {
+          const operation = new AbortController();
+          activeOperation = operation;
+          try {
+            const result = await Promise.race([
+              input.archives.extract(archiveImport.id, operation.signal).then(() => "completed" as const),
+              stopRequested,
+            ]);
+            if (result === "stopped") break;
+          } catch (error) {
+            console.error("worker loop: archive extraction failed", archiveImport.id, error);
+          } finally {
+            if (activeOperation === operation) activeOperation = undefined;
+          }
+          if (stopped) break;
+          continue;
+        }
+      }
       let job;
       try {
         job = await input.repo.claimJob(workerId, input.leaseMs);

@@ -184,3 +184,76 @@ describe("startWorkerLoop", () => {
     expect(failCalls).toBe(0);
   });
 });
+
+describe("startWorkerLoop archive extraction", () => {
+  test("claims and extracts a queued archive import before falling back to job claims", async () => {
+    let archiveClaims = 0;
+    let jobClaims = 0;
+    let resolveExtracted!: () => void;
+    const extracted = new Promise<void>((resolve) => { resolveExtracted = resolve; });
+    const extractedIds: string[] = [];
+    const repo = {
+      async claimArchiveImport() {
+        archiveClaims += 1;
+        return archiveClaims === 1 ? { id: "arc_1" } : null;
+      },
+      async claimJob() {
+        jobClaims += 1;
+        return null;
+      },
+    } as unknown as KnowledgeRepository;
+    const ingestion = { async process() {} } as unknown as IngestionService;
+    const archives = {
+      async extract(id: string) {
+        extractedIds.push(id);
+        resolveExtracted();
+      },
+    };
+
+    const stop = startWorkerLoop({ repo, ingestion, archives, leaseMs: 60_000, ingestionTimeoutMs: 60_000 });
+    try {
+      await Promise.race([
+        extracted,
+        Bun.sleep(500).then(() => { throw new Error("archive was not extracted"); }),
+      ]);
+      expect(extractedIds).toEqual(["arc_1"]);
+    } finally {
+      stop();
+    }
+  });
+
+  test("an extraction error does not crash the loop; it keeps claiming", async () => {
+    let archiveClaims = 0;
+    let jobClaims = 0;
+    let resolveJobClaimed!: () => void;
+    const jobClaimed = new Promise<void>((resolve) => { resolveJobClaimed = resolve; });
+    const repo = {
+      async claimArchiveImport() {
+        archiveClaims += 1;
+        return archiveClaims === 1 ? { id: "arc_1" } : null;
+      },
+      async claimJob() {
+        jobClaims += 1;
+        resolveJobClaimed();
+        return null;
+      },
+    } as unknown as KnowledgeRepository;
+    const ingestion = { async process() {} } as unknown as IngestionService;
+    const archives = {
+      async extract() {
+        throw new Error("unexpected extraction failure");
+      },
+    };
+
+    const stop = startWorkerLoop({ repo, ingestion, archives, leaseMs: 60_000, ingestionTimeoutMs: 60_000 });
+    try {
+      await Promise.race([
+        jobClaimed,
+        Bun.sleep(500).then(() => { throw new Error("loop stalled after extraction error"); }),
+      ]);
+      expect(jobClaims).toBeGreaterThan(0);
+    } finally {
+      stop();
+    }
+  });
+});
