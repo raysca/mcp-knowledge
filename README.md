@@ -46,18 +46,20 @@ docker inspect --format '{{.State.Health.Status}}' mcp-knowledge
 curl --fail http://127.0.0.1:3000/health
 ```
 
-The `0.1` tag follows the current v0.1 release line. For a fully reproducible
-deployment, pin the immutable `0.1.0` release tag instead.
+The `0.1` tag follows the current v0.1 release line. To select this release
+explicitly, use the versioned `0.1.0` tag instead.
 
 By default the service is bound to loopback and has no authentication. That is
 appropriate for a service only your machine can reach. Set a passphrase before
 [exposing it to a LAN, proxy, or tunnel](#exposing-beyond-loopback).
 
-Prefer Compose or want to build locally?
+Prefer Compose or want to build locally? A fresh clone follows `main` for
+current development. To run the released v0.1.0 source instead:
 
 ```bash
 git clone https://github.com/raysca/mcp-knowledge.git
 cd mcp-knowledge
+git checkout v0.1.0
 docker compose up -d
 ```
 
