@@ -852,7 +852,7 @@
   --restart unless-stopped \
   -p 127.0.0.1:3000:3000 \
   -v mcp-knowledge-data:/app/data \
-  ghcr.io/raysca/mcp-knowledge:main
+  ghcr.io/raysca/mcp-knowledge:0.1
 
 <span class="p">$</span> curl --fail http://127.0.0.1:3000/health</pre>
           </div>
@@ -875,6 +875,7 @@
 
       <ul class="notes">
         <li>Open the dashboard at <code>http://127.0.0.1:3000</code>. Upload a file, watch it become ready, then validate retrieval at <code>/playground</code>.</li>
+        <li><code>:0.1</code> follows the v0.1 release line. For a fully reproducible deployment, pin the immutable <code>:0.1.0</code> release tag.</li>
         <li>MCP tools are read-only — <code>search_documents</code>, <code>get_document</code>, <code>get_chunk</code>, <code>list_documents</code>, <code>list_collections</code>. Use REST to write.</li>
         <li>The loopback-only setup above has no authentication. Set <code>DASHBOARD_PASSPHRASE</code> and generate an API key before exposing it to a LAN, proxy, or tunnel.</li>
         <li>Everything persists in the <code>mcp-knowledge-data</code> named Docker volume. Removing the container does not remove its data.</li>

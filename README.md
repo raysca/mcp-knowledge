@@ -36,7 +36,7 @@ docker run -d \
   --restart unless-stopped \
   -p 127.0.0.1:3000:3000 \
   -v mcp-knowledge-data:/app/data \
-  ghcr.io/raysca/mcp-knowledge:main
+  ghcr.io/raysca/mcp-knowledge:0.1
 ```
 
 Wait for the service, then open [http://127.0.0.1:3000](http://127.0.0.1:3000):
@@ -46,8 +46,8 @@ docker inspect --format '{{.State.Health.Status}}' mcp-knowledge
 curl --fail http://127.0.0.1:3000/health
 ```
 
-The `main` tag is the current published build. Pin a versioned tag such as
-`0.1.0` when the first release is published.
+The `0.1` tag follows the current v0.1 release line. For a fully reproducible
+deployment, pin the immutable `0.1.0` release tag instead.
 
 By default the service is bound to loopback and has no authentication. That is
 appropriate for a service only your machine can reach. Set a passphrase before
@@ -275,7 +275,7 @@ docker run -d \
   -p 3000:3000 \
   -e DASHBOARD_PASSPHRASE='replace-with-a-long-random-passphrase' \
   -v mcp-knowledge-data:/app/data \
-  ghcr.io/raysca/mcp-knowledge:main
+  ghcr.io/raysca/mcp-knowledge:0.1
 ```
 
 The dashboard sets an `HttpOnly`, `SameSite=Strict` session cookie after

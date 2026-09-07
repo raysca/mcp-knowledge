@@ -56,9 +56,10 @@ your own reverse proxy, TLS, and network controls in front of it.
 
 ## Reporting a vulnerability
 
-Open an issue or contact the maintainer directly for anything sensitive.
-Follow the same rule as [troubleshooting.md](docs/troubleshooting.md): never
+Report vulnerabilities through GitHub's [private vulnerability reporting](https://github.com/raysca/mcp-knowledge/security/advisories/new).
+Do not open a public issue for sensitive reports. Follow the same rule as
+[troubleshooting.md](docs/troubleshooting.md): never
 include document contents, file paths, API keys, session cookies, passphrases,
 or raw stack traces in a report. Describe the request/response shape and
-observed behavior instead; a maintainer will ask for more detail privately if
-needed.
+observed behavior instead; a maintainer will request further detail privately
+if needed.

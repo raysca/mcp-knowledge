@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0
+## 0.1.0 - 2026-09-07
 
 First Docker-first local release, for 100–1,000-document local corpora on
 `linux/amd64` and `linux/arm64`.
