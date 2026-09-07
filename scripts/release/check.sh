@@ -30,23 +30,6 @@ check_readme_links() {
   done < <(grep -oE '\]\([^)]+\)' "$REPOSITORY_ROOT/$file" | sed -E 's/^\]\((.*)\)$/\1/')
 }
 
-check_scale_report() {
-  local documents="$1"
-  local path="docs/results/scale-${documents}.json"
-  [[ -f "$REPOSITORY_ROOT/$path" ]] || die "missing scale report: $path"
-  BUN_REPORT_PATH="$REPOSITORY_ROOT/$path" BUN_REPORT_DOCUMENTS="$documents" \
-    bun -e '
-      import { validateScaleReport } from "./scripts/scale/lib.ts";
-      const path = process.env.BUN_REPORT_PATH!;
-      const expected = Number(process.env.BUN_REPORT_DOCUMENTS);
-      const value = await Bun.file(path).json();
-      validateScaleReport(value);
-      if (value.documents !== expected) {
-        throw new Error(`${path}: expected documents=${expected}, got ${value.documents}`);
-      }
-    ' || die "invalid scale report: $path"
-}
-
 main() {
   [[ "$#" -eq 0 ]] || die "usage: $0"
   cd "$REPOSITORY_ROOT"
@@ -81,9 +64,7 @@ main() {
   bash "$SCRIPT_DIR/test-platforms.sh"
 
   step "Validating scale reports"
-  check_scale_report 100
-  check_scale_report 500
-  check_scale_report 1000
+  bun "$SCRIPT_DIR/validate-scale-reports.ts"
 
   step "Checking README links resolve locally"
   check_readme_links README.md
