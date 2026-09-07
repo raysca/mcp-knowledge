@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE = "mk_session";
-export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // ponytail: stateless signed cookie, not a session table - no store to clean up, no extra
 // migration. The cookie's own signature is its validity proof: HMAC(expiresAt) keyed by the

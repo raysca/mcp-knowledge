@@ -74,7 +74,7 @@ function toDocument(row: typeof documents.$inferSelect): Document {
   };
 }
 
-export class LibSqlKnowledgeRepository implements KnowledgeRepository {
+class LibSqlKnowledgeRepository implements KnowledgeRepository {
   private readonly client: Client;
   // ponytail: single shared libSQL connection can only have one raw
   // BEGIN IMMEDIATE...COMMIT in flight at a time; chain callers through this

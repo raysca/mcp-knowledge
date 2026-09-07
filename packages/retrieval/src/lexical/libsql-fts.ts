@@ -2,7 +2,7 @@ import { createClient, type Client, type InValue } from "@libsql/client";
 import type { FilterClause, LexicalHit, LexicalIndex } from "@mcp-knowledge/core";
 import { extraWhere, parseJson } from "../where.ts";
 
-export function ftsMatchQuery(raw: string): string {
+function ftsMatchQuery(raw: string): string {
   return raw
     .trim()
     .split(/\s+/)

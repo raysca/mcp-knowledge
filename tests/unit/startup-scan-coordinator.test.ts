@@ -448,7 +448,7 @@ describe("StartupIngestionCoordinator", () => {
     let started: (() => void) | undefined;
     const scanImporter: Importer = {
       process: async () =>
-        new Promise((resolve, reject) => {
+        new Promise((_resolve, reject) => {
           started = () => reject(new DOMException("stopped", "AbortError"));
         }),
     };

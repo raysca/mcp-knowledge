@@ -14,3 +14,4 @@ apps/server/src/ui/styles.built.css
 huggingface/
 .worktrees/
 tmp/scale/
+.superpowers/

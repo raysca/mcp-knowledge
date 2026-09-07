@@ -41,5 +41,3 @@ export class ApiKeyService {
     return this.repo.listApiKeys();
   }
 }
-
-export { hashSecret };

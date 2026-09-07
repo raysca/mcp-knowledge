@@ -1,10 +1,10 @@
 import type { DocumentBlock, SourceLocation } from "../domain/normalized.ts";
 
-export const CHUNK_TARGET = 180;
-export const CHUNK_MIN = 64;
-export const CHUNK_MAX = 220;
-export const CHUNK_OVERLAP = 32;
-export const EMBEDDING_MAX_TOKENS = 256;
+const CHUNK_TARGET = 180;
+const CHUNK_MIN = 64;
+const CHUNK_MAX = 220;
+const CHUNK_OVERLAP = 32;
+const EMBEDDING_MAX_TOKENS = 256;
 
 export type ChunkDraft = {
   id: string;

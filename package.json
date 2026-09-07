@@ -13,11 +13,7 @@
     "release:test-platforms": "bash scripts/release/test-platforms.sh",
     "release:check": "bash scripts/release/check.sh",
     "scale": "bun scripts/scale/run.ts",
-    "ui:css": "tailwindcss -i apps/server/src/ui/styles.css -o apps/server/src/ui/styles.built.css",
-    "spike:anydoc": "bun scripts/spike-anydoc.ts",
-    "spike:anydoc:spawn": "bun scripts/spike-anydoc-spawn.ts",
-    "spike:embed": "bun scripts/spike-embed.ts",
-    "spike:embed:worker": "bun scripts/spike-embed-worker.ts"
+    "ui:css": "tailwindcss -i apps/server/src/ui/styles.css -o apps/server/src/ui/styles.built.css"
   },
   "devDependencies": {
     "@libsql/client": "^0.15.15",

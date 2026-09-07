@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "documents": 500,
+  "environment": {
+    "capturedAtUtc": "2026-09-06T05:56:59.230Z",
+    "dockerVersion": "29.4.0",
+    "host": {
+      "architecture": "arm64",
+      "cpuModel": "Apple M4 Pro",
+      "cpuCount": 12,
+      "totalMemoryBytes": 25769803776
+    },
+    "docker": {
+      "cpuCount": 12,
+      "totalMemoryBytes": 12599844864
+    },
+    "image": {
+      "reference": "mcp-knowledge-scale:task8-5eb25d3-r1",
+      "digest": "sha256:a5eac1da7ccff63373c14ed0b880dc58deae45c2b7e63cd483cb3784e2144c6c",
+      "os": "linux",
+      "architecture": "arm64",
+      "revision": "5eb25d34c75851ea215544cbad58cadbef6a7c6c"
+    }
+  },
+  "ingestion": {
+    "totalMs": 195479.919,
+    "perDocumentMs": 390.96
+  },
+  "resources": {
+    "peakRssBytes": 290350694,
+    "storageBytes": 48275456
+  },
+  "search": {
+    "sampleSize": 500,
+    "coldMs": {
+      "p50": 8.67,
+      "p95": 10.313
+    },
+    "warmMs": {
+      "p50": 8.581,
+      "p95": 9.753
+    }
+  },
+  "restart": {
+    "healthReadyMs": 800.239,
+    "searchReadyMs": 882.679
+  }
+}
