@@ -74,6 +74,14 @@ before you can build and evaluate a corpus.
 | **Jobs** | Follow ingestion, directory scans, and ZIP imports; see actionable failures and retry jobs. |
 | **Playground** | Search the same path used by MCP and REST, with collection, document, and metadata filters. |
 
+<a href="assets/screenshots/dashboard.png">
+  <img src="assets/screenshots/dashboard.png" alt="MCP Knowledge dashboard listing four ready documents from the repository fixtures, with upload, download, delete, and archive controls." width="1440" height="900">
+</a>
+
+<a href="assets/screenshots/playground.png">
+  <img src="assets/screenshots/playground.png" alt="MCP Knowledge playground showing a hybrid search for API rate limits with filters, explainable ranks, source context, and timing." width="1440" height="900">
+</a>
+
 The playground is more than a demo. Switch between hybrid, vector, and lexical
 search; expand neighboring or section context; and inspect matched terms,
 source locations, final/vector/lexical ranks, fusion scores, and per-stage

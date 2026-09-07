@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">MCP Knowledge</title>
+  <desc id="desc">Private local document retrieval with a dashboard, explainable search playground, MCP, and REST in one Docker container.</desc>
+  <rect width="1200" height="630" fill="#0b0d10"/>
+  <path d="M0 1h1200M0 629h1200" stroke="#232830"/>
+
+  <g transform="translate(68 58)">
+    <rect width="34" height="34" rx="8" fill="#14171c" stroke="#232830"/>
+    <path d="M9 10h16M9 17h16M9 24h8" stroke="#e6e9ef" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M9 24h8" stroke="#4adec0" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="48" y="16" fill="#e6e9ef" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="600">MCP Knowledge</text>
+    <text x="48" y="34" fill="#8a94a6" font-family="JetBrains Mono, monospace" font-size="11">private retrieval</text>
+  </g>
+
+  <g transform="translate(68 152)">
+    <text fill="#e6e9ef" font-family="Inter, Arial, sans-serif" font-size="55" font-weight="600" letter-spacing="-2">
+      <tspan x="0" y="0">Local RAG you can</tspan>
+      <tspan x="0" y="64">see, test, and connect.</tspan>
+    </text>
+    <text x="0" y="158" fill="#8a94a6" font-family="Inter, Arial, sans-serif" font-size="20">
+      <tspan x="0" dy="0">Dashboard operations and explainable hybrid search,</tspan>
+      <tspan x="0" dy="30">served over MCP and REST from one Docker container.</tspan>
+    </text>
+  </g>
+
+  <g transform="translate(68 467)" font-family="JetBrains Mono, monospace" font-size="13">
+    <rect width="156" height="38" rx="8" fill="#14171c" stroke="#2b343e"/>
+    <circle cx="20" cy="19" r="4" fill="#4adec0"/><text x="34" y="24" fill="#cbd2dc">local embeddings</text>
+    <rect x="168" width="142" height="38" rx="8" fill="#14171c" stroke="#2b343e"/>
+    <circle cx="188" cy="19" r="4" fill="#4adec0"/><text x="202" y="24" fill="#cbd2dc">hybrid search</text>
+    <rect x="322" width="110" height="38" rx="8" fill="#14171c" stroke="#2b343e"/>
+    <circle cx="342" cy="19" r="4" fill="#4adec0"/><text x="356" y="24" fill="#cbd2dc">MCP + REST</text>
+  </g>
+
+  <g transform="translate(720 58)">
+    <rect width="412" height="514" rx="14" fill="#0e1116" stroke="#2b343e"/>
+    <path d="M0 58h412" stroke="#232830"/>
+    <g transform="translate(22 20)" font-family="JetBrains Mono, monospace" font-size="12">
+      <circle cx="7" cy="7" r="4" fill="#4adec0"/>
+      <text x="20" y="12" fill="#8a94a6">PLAYGROUND / HYBRID + EXPLAIN</text>
+    </g>
+    <g transform="translate(24 84)">
+      <text fill="#5d6674" font-family="JetBrains Mono, monospace" font-size="11">QUERY</text>
+      <rect y="16" width="364" height="48" rx="8" fill="#14171c" stroke="#2b343e"/>
+      <text x="16" y="47" fill="#e6e9ef" font-family="Inter, Arial, sans-serif" font-size="16">What are the API rate limits?</text>
+    </g>
+    <g transform="translate(24 176)">
+      <rect width="364" height="266" rx="10" fill="#14171c" stroke="#2b343e"/>
+      <text x="18" y="29" fill="#4adec0" font-family="JetBrains Mono, monospace" font-size="11">RESULT #1</text>
+      <text x="18" y="62" fill="#e6e9ef" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="600">API Rate Limits</text>
+      <path d="M18 82h328" stroke="#232830"/>
+      <g transform="translate(18 108)" font-family="JetBrains Mono, monospace">
+        <text fill="#5d6674" font-size="10">FINAL RANK</text><text y="24" fill="#e6e9ef" font-size="17">#1</text>
+        <text x="112" fill="#5d6674" font-size="10">VECTOR</text><text x="112" y="24" fill="#e6e9ef" font-size="17">#1</text>
+        <text x="218" fill="#5d6674" font-size="10">LEXICAL</text><text x="218" y="24" fill="#8a94a6" font-size="17">—</text>
+        <text x="292" fill="#5d6674" font-size="10">RRF</text><text x="292" y="24" fill="#e6e9ef" font-size="15">0.0164</text>
+      </g>
+      <rect x="18" y="158" width="328" height="82" rx="8" fill="#0e1116" stroke="#232830"/>
+      <text x="34" y="184" fill="#cbd2dc" font-family="JetBrains Mono, monospace" font-size="12">
+        <tspan x="34" dy="0">60 requests per minute for read keys.</tspan>
+        <tspan x="34" dy="22">20 for write keys. 5 concurrent jobs.</tspan>
+      </text>
+    </g>
+    <g transform="translate(24 466)" font-family="JetBrains Mono, monospace" font-size="11">
+      <text fill="#4adec0">7 ms</text>
+      <text x="50" fill="#5d6674">embed 2 · vector 4 · lexical 1 · fuse 0</text>
+    </g>
+  </g>
+
+  <text x="68" y="582" fill="#5d6674" font-family="JetBrains Mono, monospace" font-size="13">ghcr.io/raysca/mcp-knowledge:0.1</text>
+</svg>
