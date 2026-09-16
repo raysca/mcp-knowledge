@@ -81,7 +81,7 @@ describe("public product proof", () => {
 
   test("social metadata describes an absolute large-card image", async () => {
     const landingPage = await readFile(resolve(repositoryRoot, "index.html"), "utf8");
-    const socialImage = "https://raysca.github.io/mcp-knowledge/assets/social-preview.png";
+    const socialImage = "https://Capgemini-AIE.github.io/mcp-knowledge/assets/social-preview.png";
 
     expect(metaContent(landingPage, "property", "og:image")).toBe(socialImage);
     expect(metaContent(landingPage, "property", "og:image:secure_url")).toBe(socialImage);

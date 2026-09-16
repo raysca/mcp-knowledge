@@ -13,11 +13,11 @@ runtime for an end-to-end local RAG setup.
 [Dashboard and playground](#dashboard-and-playground) ·
 [Connect an MCP client](#connect-an-mcp-client) ·
 [Local LLMs](#keep-the-whole-rag-path-local) ·
-[Live overview](https://raysca.github.io/mcp-knowledge/) ·
+[Live overview](https://Capgemini-AIE.github.io/mcp-knowledge/) ·
 [Documentation](#documentation)
 
-[![Build](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml/badge.svg)](https://github.com/raysca/mcp-knowledge/actions/workflows/docker.yml)
-[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fraysca%2Fmcp--knowledge-2496ED?logo=docker&logoColor=white)](https://github.com/raysca/mcp-knowledge/pkgs/container/mcp-knowledge)
+[![Build](https://github.com/Capgemini-AIE/mcp-knowledge/actions/workflows/docker.yml/badge.svg)](https://github.com/Capgemini-AIE/mcp-knowledge/actions/workflows/docker.yml)
+[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2FCapgemini-AIE%2Fmcp--knowledge-2496ED?logo=docker&logoColor=white)](https://github.com/Capgemini-AIE/mcp-knowledge/pkgs/container/mcp-knowledge)
 [![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-3d5a80)](docs/container-release.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3d5a80.svg)](LICENSE)
 
@@ -36,7 +36,7 @@ docker run -d \
   --restart unless-stopped \
   -p 127.0.0.1:3000:3000 \
   -v mcp-knowledge-data:/app/data \
-  ghcr.io/raysca/mcp-knowledge:0.1
+  ghcr.io/Capgemini-AIE/mcp-knowledge:0.1
 ```
 
 Wait for the service, then open [http://127.0.0.1:3000](http://127.0.0.1:3000):
@@ -57,7 +57,7 @@ Prefer Compose or want to build locally? A fresh clone follows `main` for
 current development. To run the released v0.1.0 source instead:
 
 ```bash
-git clone https://github.com/raysca/mcp-knowledge.git
+git clone https://github.com/Capgemini-AIE/mcp-knowledge.git
 cd mcp-knowledge
 git checkout v0.1.0
 docker compose up -d
@@ -285,7 +285,7 @@ docker run -d \
   -p 3000:3000 \
   -e DASHBOARD_PASSPHRASE='replace-with-a-long-random-passphrase' \
   -v mcp-knowledge-data:/app/data \
-  ghcr.io/raysca/mcp-knowledge:0.1
+  ghcr.io/Capgemini-AIE/mcp-knowledge:0.1
 ```
 
 The dashboard sets an `HttpOnly`, `SameSite=Strict` session cookie after

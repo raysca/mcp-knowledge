@@ -11,8 +11,8 @@ test("public installation copy uses stable image tags and released source checko
   ]);
 
   for (const copy of [readme, landingPage]) {
-    expect(copy).toContain("ghcr.io/raysca/mcp-knowledge:0.1");
-    expect(copy).not.toContain("ghcr.io/raysca/mcp-knowledge:main");
+    expect(copy).toContain("ghcr.io/Capgemini-AIE/mcp-knowledge:0.1");
+    expect(copy).not.toContain("ghcr.io/Capgemini-AIE/mcp-knowledge:main");
     expect(copy.toLowerCase()).not.toContain("immutable");
   }
 
