@@ -57,7 +57,15 @@ const TOOLS = [
   {
     name: "list_documents",
     description: "List documents in the instance.",
-    inputSchema: { type: "object", properties: { limit: { type: "number" } } },
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number" },
+        cursor: { type: "string" },
+        status: { type: "string" },
+        collection_id: { type: "string" },
+      },
+    },
   },
   {
     name: "list_collections",
@@ -157,7 +165,12 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
   }
   if (name === "list_documents") {
     const limit = Math.min(Number(args.limit) || 50, svc.env.MAX_LIST_LIMIT);
-    return svc.documents.list({ limit });
+    return svc.documents.list({
+      limit,
+      cursor: typeof args.cursor === "string" ? args.cursor : undefined,
+      status: typeof args.status === "string" ? args.status : undefined,
+      collectionId: typeof args.collection_id === "string" ? args.collection_id : undefined,
+    });
   }
   if (name === "list_collections") {
     return { items: await svc.collections.list() };

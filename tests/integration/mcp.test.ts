@@ -21,14 +21,26 @@ describe("MCP", () => {
     stop = app.stop;
     server = Bun.serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
     base = `http://127.0.0.1:${server.port}`;
-    const form = new FormData();
-    form.set("file", new File(["# Hello\n\nSearchable paragraph about widgets."], "n.md"));
-    const created = await fetch(`${base}/api/v1/documents`, { method: "POST", body: form });
-    const body = (await created.json()) as { id: string };
+    const documentIds: string[] = [];
+    for (const [filename, content] of [
+      ["first.md", "# First\n\nSearchable paragraph about widgets."],
+      ["second.md", "# Second\n\nSearchable paragraph about gadgets."],
+      ["third.md", "# Third\n\nSearchable paragraph about tools."],
+    ]) {
+      const form = new FormData();
+      form.set("file", new File([content], filename));
+      const created = await fetch(`${base}/api/v1/documents`, { method: "POST", body: form });
+      const body = (await created.json()) as { id: string };
+      documentIds.push(body.id);
+    }
     const start = Date.now();
     while (Date.now() - start < 30_000) {
-      const doc = (await (await fetch(`${base}/api/v1/documents/${body.id}`)).json()) as { status: string };
-      if (doc.status === "ready") break;
+      const states = await Promise.all(
+        documentIds.map(async (id) =>
+          (await (await fetch(`${base}/api/v1/documents/${id}`)).json()) as { status: string },
+        ),
+      );
+      if (states.every((doc) => doc.status === "ready")) break;
       await Bun.sleep(50);
     }
   }, 60_000);
@@ -71,5 +83,29 @@ describe("MCP", () => {
     const hits = JSON.parse(text) as Array<{ documentId: string; resourceUri: string }>;
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0]!.resourceUri.startsWith("document://")).toBe(true);
+  });
+
+  test("list_documents follows its opaque cursor to the next page", async () => {
+    const first = await rpc("tools/call", {
+      name: "list_documents",
+      arguments: { limit: 1 },
+    });
+    const firstPage = JSON.parse(
+      (first.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+    ) as { items: Array<{ id: string }>; nextCursor?: string };
+
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.nextCursor).toBeString();
+
+    const second = await rpc("tools/call", {
+      name: "list_documents",
+      arguments: { limit: 1, cursor: firstPage.nextCursor },
+    });
+    const secondPage = JSON.parse(
+      (second.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+    ) as { items: Array<{ id: string }> };
+
+    expect(secondPage.items).toHaveLength(1);
+    expect(secondPage.items[0]!.id).not.toBe(firstPage.items[0]!.id);
   });
 });
