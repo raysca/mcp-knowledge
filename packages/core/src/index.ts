@@ -75,6 +75,9 @@ export type {
 } from "./domain/archive.ts";
 export type {
   BlobStore,
+  CatalogField,
+  CatalogItem,
+  CatalogPage,
   EmbeddedChunk,
   Embedder,
   FilterClause,
@@ -82,6 +85,7 @@ export type {
   LexicalHit,
   LexicalIndex,
   ListDocumentsQuery,
+  ListDocumentCatalogQuery,
   VectorHit,
   VectorIndex,
 } from "./ports.ts";
