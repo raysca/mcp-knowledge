@@ -26,7 +26,7 @@ function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-const TOOLS = [
+const tools = (env: McpServices["env"]) => [
   {
     name: "search_documents",
     description: "Hybrid search over ingested documents.",
@@ -45,7 +45,7 @@ const TOOLS = [
             after: { type: "integer", minimum: 0, maximum: 5 },
           },
         },
-        limit: { type: "integer", minimum: 1 },
+        limit: { type: "integer", minimum: 1, maximum: env.MAX_SEARCH_LIMIT_MCP },
         mode: { type: "string" },
       },
       required: ["query"],
@@ -79,7 +79,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        limit: { type: "integer", minimum: 1 },
+        limit: { type: "integer", minimum: 1, maximum: env.MAX_LIST_LIMIT },
         cursor: { type: "string" },
         status: { type: "string" },
         collection_id: { type: "string" },
@@ -108,7 +108,7 @@ export async function handleMcp(body: unknown, svc: McpServices): Promise<unknow
     });
   }
   if (msg.method === "notifications/initialized") return undefined;
-  if (msg.method === "tools/list") return rpcResult(id, { tools: TOOLS });
+  if (msg.method === "tools/list") return rpcResult(id, { tools: tools(svc.env) });
   if (msg.method === "resources/list") {
     return rpcResult(id, {
       resources: [{ uri: "document://{documentId}", name: "Document", mimeType: "application/json" }],
@@ -130,7 +130,9 @@ export async function handleMcp(body: unknown, svc: McpServices): Promise<unknow
       const result = await callTool(name, args, svc);
       return rpcResult(id, textResult(result));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof AppError
+        ? `${error.code}: ${error.message}`
+        : error instanceof Error ? error.message : String(error);
       return rpcResult(id, { content: [{ type: "text", text: message }], isError: true });
     }
   }
@@ -141,7 +143,7 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
   if (name === "search_documents") {
     const limit = boundedInteger(args.limit, {
       name: "limit",
-      defaultValue: svc.env.DEFAULT_SEARCH_LIMIT,
+      defaultValue: Math.min(svc.env.DEFAULT_SEARCH_LIMIT, svc.env.MAX_SEARCH_LIMIT_MCP),
       min: 1,
       max: svc.env.MAX_SEARCH_LIMIT_MCP,
     });
@@ -215,7 +217,7 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
   if (name === "list_documents") {
     const limit = boundedInteger(args.limit, {
       name: "limit",
-      defaultValue: 50,
+      defaultValue: Math.min(50, svc.env.MAX_LIST_LIMIT),
       min: 1,
       max: svc.env.MAX_LIST_LIMIT,
     });

@@ -17,6 +17,8 @@ describe("MCP", () => {
     const env = loadEnv({
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
+      MAX_SEARCH_LIMIT_MCP: "3",
+      MAX_LIST_LIMIT: "4",
     });
     const app = await createApp(env);
     stop = app.stop;
@@ -30,6 +32,9 @@ describe("MCP", () => {
       ],
       ["second.md", "# Second\n\nSearchable paragraph about gadgets."],
       ["third.md", "# Third\n\nSearchable paragraph about tools."],
+      ["fourth.md", "# Fourth\n\nWidgets are stocked in aisle alpha."],
+      ["fifth.md", "# Fifth\n\nWidgets are stocked in aisle beta."],
+      ["sixth.md", "# Sixth\n\nWidgets are stocked in aisle gamma."],
     ]) {
       const form = new FormData();
       form.set("file", new File([content], filename));
@@ -85,6 +90,9 @@ describe("MCP", () => {
     }).result.tools;
     const search = tools.find((tool) => tool.name === "search_documents")!;
     const chunk = tools.find((tool) => tool.name === "get_chunk")!;
+    const list = tools.find((tool) => tool.name === "list_documents")!;
+    expect(search.inputSchema.properties.limit).toMatchObject({ maximum: 3 });
+    expect(list.inputSchema.properties.limit).toMatchObject({ maximum: 4 });
     expect(search.inputSchema.properties.filters).toMatchObject({ type: "object" });
     expect(search.inputSchema.properties.expand).toMatchObject({
       type: "object",
@@ -105,7 +113,7 @@ describe("MCP", () => {
   test("search_documents returns hits", async () => {
     const res = await rpc("tools/call", {
       name: "search_documents",
-      arguments: { query: "widgets", limit: 5 },
+      arguments: { query: "widgets", limit: 3 },
     });
     const text = (res.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text;
     const hits = JSON.parse(text) as Array<{ documentId: string; resourceUri: string }>;
@@ -138,7 +146,33 @@ describe("MCP", () => {
     expect((malformed.body as { result: { isError?: boolean } }).result.isError).toBe(true);
     expect(
       (malformed.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
-    ).toContain("filters must be an object");
+    ).toStartWith("INVALID_FILTER: filters must be an object");
+  });
+
+  test("omitted and cap-sized limits honor reduced runtime maxima", async () => {
+    for (const limit of [undefined, "3"]) {
+      const response = await rpc("tools/call", {
+        name: "search_documents",
+        arguments: { query: "widgets", mode: "lexical", limit },
+      });
+      expect((response.body as { result: { isError?: boolean } }).result.isError).toBeUndefined();
+      const hits = JSON.parse(
+        (response.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+      ) as unknown[];
+      expect(hits).toHaveLength(3);
+    }
+    for (const limit of [undefined, "4"]) {
+      const response = await rpc("tools/call", {
+        name: "list_documents",
+        arguments: { limit },
+      });
+      expect((response.body as { result: { isError?: boolean } }).result.isError).toBeUndefined();
+      const page = JSON.parse(
+        (response.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+      ) as { items: unknown[]; nextCursor?: string };
+      expect(page.items).toHaveLength(4);
+      expect(page.nextCursor).toBeString();
+    }
   });
 
   test("get_chunk returns requested neighbors in sequence order", async () => {
@@ -160,15 +194,18 @@ describe("MCP", () => {
   test("MCP rejects invalid limits, neighbor counts, and document expansion", async () => {
     for (const [name, args] of [
       ["search_documents", { query: "widgets", limit: 0 }],
-      ["search_documents", { query: "widgets", limit: 21 }],
+      ["search_documents", { query: "widgets", limit: 4 }],
       ["list_documents", { limit: 0 }],
-      ["list_documents", { limit: 101 }],
+      ["list_documents", { limit: 5 }],
       ["get_chunk", { chunk_id: contextChunks[0]!.id, before: -1 }],
       ["get_chunk", { chunk_id: contextChunks[0]!.id, after: 6 }],
       ["search_documents", { query: "widgets", expand: { type: "document" } }],
     ] as const) {
       const response = await rpc("tools/call", { name, arguments: args });
       expect((response.body as { result: { isError?: boolean } }).result.isError).toBe(true);
+      expect(
+        (response.body as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+      ).toStartWith("INVALID_TOOL_ARGUMENTS: ");
     }
   });
 
