@@ -213,6 +213,7 @@ function ownCurrentPath(
   const owned = document({
     id: input.documentId ?? "doc_old",
     sha256: input.sha256 ?? "sha-old",
+    metadata: { sourcePath: input.path ?? "current.txt" },
   });
   repo.documents.set(owned.id, owned);
   repo.sourceFile = sourceRecord({
@@ -390,6 +391,56 @@ describe("SourceImportService", () => {
     ]);
     expect(repo.committed).toEqual([]);
     expect(blobs.puts).toEqual([]);
+  });
+
+  test("refreshes changed metadata for unchanged bytes through atomic replacement", async () => {
+    await withRepository(async (repo) => {
+      const source = new FakeSource();
+      const blobs = new FakeBlobs();
+      const service = new SourceImportService({ source, repo, blobs, archives: new FakeArchives(),
+        maxUploadBytes: 64, signal: new AbortController().signal });
+      const first = await service.process({ relativePath: "guides/a.txt", metadata: { kind: "old" } }, "one");
+      expect(first.outcome).toBe("queued");
+      const refreshed = await service.process({ relativePath: "guides/a.txt", metadata: { kind: "new", sourcePath: "spoof" } }, "two");
+      expect(refreshed.outcome).toBe("queued");
+      expect(refreshed.replacedDocumentId).toBe(first.documentId);
+      expect(await repo.getDocument(first.documentId!)).toBeNull();
+      expect((await repo.getDocument(refreshed.documentId!))?.metadata).toEqual({ kind: "new", sourcePath: "guides/a.txt" });
+      expect(await repo.listJobs()).toHaveLength(2);
+      expect((await repo.getSourceFile(source.sourceId, "guides/a.txt"))?.documentId).toBe(refreshed.documentId);
+      expect(await service.process({ relativePath: "guides/a.txt", metadata: { sourcePath: "guides/a.txt", kind: "new" } }, "three"))
+        .toEqual({ outcome: "unchanged", documentId: refreshed.documentId });
+      expect(await repo.listJobs()).toHaveLength(2);
+      const duplicate = await service.process({ relativePath: "copy.txt", metadata: { kind: "other" } }, "three");
+      expect(duplicate.outcome).toBe("duplicate");
+      expect((await repo.getDocument(refreshed.documentId!))?.metadata.kind).toBe("new");
+      expect((await repo.getSourceFile(source.sourceId, "copy.txt"))?.documentId).toBeUndefined();
+    });
+  });
+
+  test("keeps the owner and metadata after a failed metadata-only refresh", async () => {
+    const { source, repo, blobs, service } = setup();
+    const owned = ownCurrentPath(repo, { sha256: "sha-same" });
+    source.sha256 = "sha-same";
+    repo.commitError = new Error("transaction failed");
+    const result = await service.process({ relativePath: "current.txt", metadata: { kind: "new" } }, "cycle-1");
+    expect(result).toEqual({ outcome: "failed", documentId: owned.id, error: "transaction failed" });
+    expect(blobs.puts).toHaveLength(1);
+    expect(blobs.deleted).toEqual([blobs.puts[0]!.key]);
+    expect(repo.recorded[0]).toMatchObject({ documentId: owned.id, sha256: "sha-same", lastOutcome: "failed" });
+    expect(owned.metadata).toEqual({ sourcePath: "current.txt" });
+  });
+
+  test("compares metadata after its JSON round trip so negative zero cannot queue endless replacements", async () => {
+    await withRepository(async (repo) => {
+      const service = new SourceImportService({ source: new FakeSource(), repo, blobs: new FakeBlobs(),
+        archives: new FakeArchives(), maxUploadBytes: 64, signal: new AbortController().signal });
+      const candidate = { relativePath: "zero.txt", metadata: { value: -0, nested: [-0] } };
+      const first = await service.process(candidate, "one");
+      expect(first.outcome).toBe("queued");
+      expect(await service.process(candidate, "two")).toEqual({ outcome: "unchanged", documentId: first.documentId });
+      expect(await repo.listJobs()).toHaveLength(1);
+    });
   });
 
   test("queues a changed live owned path and atomically replaces its document", async () => {
