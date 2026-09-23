@@ -429,8 +429,9 @@ passphrase is configured; an API key with `read` scope is sufficient. The
 default selects live `ready` documents and returns only `id`, `revisionId`,
 `title`, `sourcePath`, and `metadata`. The allowed projection is fixed to those
 five fields plus `status` and `updatedAt`; fields such as storage keys and
-hashes cannot be requested. Set `status` to `pending`, `processing`, `ready`,
-`failed`, or `deleted` to select another status. `limit` defaults to 50 (or
+hashes cannot be requested. `status` accepts `pending`, `processing`, `ready`,
+`failed`, or `deleted`, but every selection excludes soft-deleted documents;
+`status=deleted` does not list deletion history. `limit` defaults to 50 (or
 `MAX_LIST_LIMIT` if lower) and cannot exceed `MAX_LIST_LIMIT`.
 
 For REST, `fields` is a comma-separated list and `filters` is a JSON-encoded
