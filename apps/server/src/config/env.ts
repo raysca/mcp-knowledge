@@ -101,15 +101,20 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     throw new Error("DASHBOARD_PASSPHRASE is required when APP_PROFILE=server.");
   }
 
+  const databaseUrl =
+    source.DATABASE_URL ??
+    (databaseDriver === "libsql" ? "file:./data/app.db" : "");
+  if (databaseDriver === "postgres" && !databaseUrl) {
+    throw new Error("DATABASE_URL is required when DATABASE_DRIVER=postgres.");
+  }
+
   return {
     APP_PROFILE: profile,
     ROLE: roleRaw,
     PORT: int(source.PORT, 3000),
     HOST: source.HOST ?? "127.0.0.1",
     DATABASE_DRIVER: databaseDriver,
-    DATABASE_URL:
-      source.DATABASE_URL ??
-      (databaseDriver === "libsql" ? "file:./data/app.db" : ""),
+    DATABASE_URL: databaseUrl,
     STORAGE_DRIVER: storageDriver,
     STORAGE_PATH: source.STORAGE_PATH ?? "./data/documents",
     S3_BUCKET: source.S3_BUCKET,

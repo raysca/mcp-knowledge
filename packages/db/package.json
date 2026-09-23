@@ -9,6 +9,7 @@
   "dependencies": {
     "@libsql/client": "^0.15.15",
     "@mcp-knowledge/core": "workspace:*",
-    "drizzle-orm": "^0.44.7"
+    "drizzle-orm": "^0.44.7",
+    "postgres": "^3.4.5"
   }
 }

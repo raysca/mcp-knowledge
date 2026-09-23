@@ -15,8 +15,7 @@ import type {
   StoredChunk,
 } from "@mcp-knowledge/core";
 import { newId } from "@mcp-knowledge/core";
-import { createClient, type Client } from "@libsql/client";
-import { createLibsqlDb } from "./libsql.ts";
+import { createPostgresClient, createPostgresDb, type PostgresClient } from "./postgres.ts";
 import {
   apiKeys,
   archiveImports,
@@ -26,7 +25,8 @@ import {
   documents,
   ingestionJobs,
   sourceFiles,
-} from "./schema/libsql.ts";
+  sourceScanState,
+} from "./schema/postgres.ts";
 
 import {
   decodeCursor,
@@ -41,48 +41,81 @@ import {
   toSourceFile,
 } from "./repository-common.ts";
 
-type Db = ReturnType<typeof createLibsqlDb>;
+type Db = ReturnType<typeof createPostgresDb>;
 type CommitSourceImportInput = Parameters<KnowledgeRepository["commitSourceImport"]>[0];
 type CommitSourceImportResult = Awaited<
   ReturnType<KnowledgeRepository["commitSourceImport"]>
 >;
 
-class LibSqlKnowledgeRepository implements KnowledgeRepository {
-  private readonly client: Client;
-  // ponytail: single shared libSQL connection can only have one raw
-  // BEGIN IMMEDIATE...COMMIT in flight at a time; chain callers through this
-  // queue so they never interleave. A rejection is caught inline so it can't
-  // permanently poison the chain for later callers.
-  private txQueue: Promise<unknown> = Promise.resolve();
+function asDate(value: unknown): Date | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value;
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
-  constructor(
-    private readonly db: Db,
-    url: string,
-  ) {
-    this.client = createClient({ url });
+function jobFromRaw(row: Record<string, unknown>): IngestionJob {
+  const createdAt = asDate(row.created_at);
+  const updatedAt = asDate(row.updated_at);
+  if (!createdAt || !updatedAt) {
+    throw new Error("Corrupt job record: missing created_at or updated_at");
+  }
+  return toJob({
+    id: String(row.id),
+    documentId: String(row.document_id),
+    revisionId: String(row.revision_id),
+    status: String(row.status),
+    attempt: Number(row.attempt),
+    maxAttempts: Number(row.max_attempts),
+    lockedBy: (row.locked_by as string | null) ?? null,
+    lockedAt: asDate(row.locked_at) ?? null,
+    startedAt: asDate(row.started_at) ?? null,
+    completedAt: asDate(row.completed_at) ?? null,
+    error: (row.error as string | null) ?? null,
+    createdAt,
+    updatedAt,
+  });
+}
+
+function archiveImportFromRaw(row: Record<string, unknown>): ArchiveImport {
+  const createdAt = asDate(row.created_at);
+  if (!createdAt) {
+    throw new Error("Corrupt archive import record: missing created_at");
+  }
+  return toArchiveImport({
+    id: String(row.id),
+    collectionId: (row.collection_id as string | null) ?? null,
+    originalFilename: String(row.original_filename),
+    metadata: typeof row.metadata === "string" ? JSON.parse(row.metadata) : ((row.metadata ?? {}) as Record<string, unknown>),
+    state: String(row.state),
+    entries: typeof row.entries === "string" ? JSON.parse(row.entries) : ((row.entries ?? []) as ArchiveImportEntry[]),
+    error: (row.error as string | null) ?? null,
+    createdAt,
+    startedAt: asDate(row.started_at) ?? null,
+    completedAt: asDate(row.completed_at) ?? null,
+  });
+}
+
+export class PostgresKnowledgeRepository implements KnowledgeRepository {
+  private readonly db: Db;
+  private readonly client: PostgresClient;
+  private readonly ownsClient: boolean;
+
+  constructor(clientOrUrl: string | PostgresClient) {
+    if (typeof clientOrUrl === "string") {
+      this.client = createPostgresClient(clientOrUrl);
+      this.ownsClient = true;
+    } else {
+      this.client = clientOrUrl;
+      this.ownsClient = false;
+    }
+    this.db = createPostgresDb(this.client);
   }
 
-  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-    const result = this.txQueue.then(fn, fn);
-    this.txQueue = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  }
-
-  private runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
-    return this.runExclusive(async () => {
-      await this.client.execute("BEGIN IMMEDIATE");
-      try {
-        const result = await fn();
-        await this.client.execute("COMMIT");
-        return result;
-      } catch (error) {
-        await this.client.execute("ROLLBACK").catch(() => undefined);
-        throw error;
-      }
-    });
+  async close(): Promise<void> {
+    if (this.ownsClient) {
+      await this.client.end();
+    }
   }
 
   async createCollection(input: {
@@ -260,26 +293,7 @@ class LibSqlKnowledgeRepository implements KnowledgeRepository {
       .from(documentRevisions)
       .where(eq(documentRevisions.id, revisionId))
       .limit(1);
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      id: row.id,
-      documentId: row.documentId,
-      revision: row.revision,
-      storageKey: row.storageKey,
-      sha256: row.sha256,
-      sizeBytes: row.sizeBytes,
-      parserName: row.parserName,
-      parserVersion: row.parserVersion,
-      chunkerName: row.chunkerName,
-      chunkerVersion: row.chunkerVersion,
-      embeddingModel: row.embeddingModel,
-      embeddingDimensions: row.embeddingDimensions,
-      embeddingVersion: row.embeddingVersion,
-      normalizedStorageKey: row.normalizedStorageKey ?? undefined,
-      chunkCount: row.chunkCount,
-      createdAt: row.createdAt,
-    };
+    return rows[0] ? toRevision(rows[0]) : null;
   }
 
   async setDocumentStatus(
@@ -392,31 +406,42 @@ class LibSqlKnowledgeRepository implements KnowledgeRepository {
       updatedAt: now,
     };
     await this.db.insert(ingestionJobs).values(row);
-    return toJob(row);
+    return toJob({
+      ...row,
+      lockedBy: null,
+      lockedAt: null,
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    });
   }
 
   async claimJob(workerId: string, leaseMs: number): Promise<IngestionJob | null> {
-    return this.runInTransaction(async () => {
-      const now = Date.now();
-      const leaseBefore = now - leaseMs;
-      const result = await this.client.execute({
-        sql: `UPDATE ingestion_jobs
-SET status = 'running', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), attempt = attempt + 1, updated_at = ?
-WHERE id = (
-  SELECT id FROM ingestion_jobs
-  WHERE status IN ('queued', 'retrying')
-     OR (status = 'running' AND locked_at < ?)
-  ORDER BY created_at
-  LIMIT 1
-)
-AND status IN ('queued', 'retrying', 'running')
-RETURNING *`,
-        args: [workerId, now, now, now, leaseBefore],
-      });
-      const row = result.rows[0];
-      if (!row) return null;
-      return jobFromRaw(row);
-    });
+    const now = new Date();
+    const leaseBefore = new Date(now.getTime() - leaseMs);
+    const rows = await this.client`
+      WITH next_job AS (
+        SELECT id FROM ingestion_jobs
+        WHERE status IN ('queued', 'retrying')
+           OR (status = 'running' AND locked_at < ${leaseBefore.toISOString()}::timestamptz)
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE ingestion_jobs
+      SET status = 'running',
+          locked_by = ${workerId},
+          locked_at = ${now.toISOString()}::timestamptz,
+          started_at = COALESCE(started_at, ${now.toISOString()}::timestamptz),
+          attempt = attempt + 1,
+          updated_at = ${now.toISOString()}::timestamptz
+      FROM next_job
+      WHERE ingestion_jobs.id = next_job.id
+      RETURNING ingestion_jobs.*
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return jobFromRaw(row as Record<string, unknown>);
   }
 
   async completeJob(id: string): Promise<void> {
@@ -484,7 +509,7 @@ RETURNING *`,
     const now = new Date();
     const row = {
       id: input.id,
-      collectionId: input.collectionId,
+      collectionId: input.collectionId ?? null,
       originalFilename: input.originalFilename,
       metadata: input.metadata,
       state: "queued" as const,
@@ -495,6 +520,8 @@ RETURNING *`,
     await this.db.insert(archiveImports).values(row);
     return toArchiveImport({
       ...row,
+      lockedBy: null,
+      lockedAt: null,
       error: null,
       startedAt: null,
       completedAt: null,
@@ -544,34 +571,38 @@ RETURNING *`,
   }
 
   async claimArchiveImport(workerId: string, leaseMs: number): Promise<ArchiveImport | null> {
-    return this.runInTransaction(async () => {
-      const now = Date.now();
-      const leaseBefore = now - leaseMs;
-      const result = await this.client.execute({
-        sql: `UPDATE archive_imports
-SET state = 'extracting', locked_by = ?, locked_at = ?, started_at = COALESCE(started_at, ?), entries = '[]'
-WHERE id = (
-  SELECT id FROM archive_imports
-  WHERE state = 'queued'
-     OR (state = 'extracting' AND locked_at < ?)
-  ORDER BY created_at
-  LIMIT 1
-)
-AND state IN ('queued', 'extracting')
-RETURNING *`,
-        args: [workerId, now, now, leaseBefore],
-      });
-      const row = result.rows[0];
-      if (!row) return null;
-      return archiveImportFromRaw(row);
-    });
+    const now = new Date();
+    const leaseBefore = new Date(now.getTime() - leaseMs);
+    const rows = await this.client`
+      WITH next_import AS (
+        SELECT id FROM archive_imports
+        WHERE state = 'queued'
+           OR (state = 'extracting' AND locked_at < ${leaseBefore.toISOString()}::timestamptz)
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE archive_imports
+      SET state = 'extracting',
+          locked_by = ${workerId},
+          locked_at = ${now.toISOString()}::timestamptz,
+          started_at = COALESCE(started_at, ${now.toISOString()}::timestamptz),
+          entries = '[]'::jsonb
+      FROM next_import
+      WHERE archive_imports.id = next_import.id
+      RETURNING archive_imports.*
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return archiveImportFromRaw(row as Record<string, unknown>);
   }
 
   async appendArchiveImportEntry(id: string, entry: ArchiveImportEntry): Promise<void> {
-    await this.client.execute({
-      sql: `UPDATE archive_imports SET entries = json_insert(entries, '$[#]', json(?)) WHERE id = ?`,
-      args: [JSON.stringify(entry), id],
-    });
+    await this.client`
+      UPDATE archive_imports
+      SET entries = entries || ${JSON.stringify([entry])}::jsonb
+      WHERE id = ${id}
+    `;
   }
 
   async finishArchiveImport(id: string, state: "completed" | "completed_with_errors"): Promise<void> {
@@ -621,7 +652,11 @@ RETURNING *`,
       createdAt: now,
     };
     await this.db.insert(apiKeys).values(row);
-    return toApiKey(row);
+    return toApiKey({
+      ...row,
+      lastUsedAt: null,
+      revokedAt: null,
+    });
   }
 
   async findApiKeyByHash(keyHash: string): Promise<ApiKey | null> {
@@ -685,53 +720,42 @@ RETURNING *`,
     configurationFingerprint: string;
     proposedCycleId: string;
   }): Promise<SourceScanCycle> {
-    return this.runInTransaction(async () => {
-      const now = Date.now();
-      const existing = await this.client.execute({
-        sql: `SELECT configuration_fingerprint, active_cycle
-FROM source_scan_state
-WHERE source_id = ?`,
-        args: [input.sourceId],
-      });
-      const row = existing.rows[0];
+    return this.client.begin(async (sql) => {
+      const now = new Date();
+      const existing = await sql`
+        SELECT configuration_fingerprint, active_cycle
+        FROM source_scan_state
+        WHERE source_id = ${input.sourceId}
+      `;
+      const row = existing[0];
       const resumed =
         row?.active_cycle != null &&
         String(row.configuration_fingerprint) === input.configurationFingerprint;
       const cycleId = resumed ? String(row.active_cycle) : input.proposedCycleId;
 
-      await this.client.execute({
-        sql: `INSERT INTO source_scan_state (
-  source_id, configuration_fingerprint, active_cycle, limit_reached, started_at, updated_at
-) VALUES (?, ?, ?, 0, ?, ?)
-ON CONFLICT(source_id) DO UPDATE SET
-  configuration_fingerprint = excluded.configuration_fingerprint,
-  active_cycle = CASE
-    WHEN source_scan_state.active_cycle IS NOT NULL
-      AND source_scan_state.configuration_fingerprint = excluded.configuration_fingerprint
-    THEN source_scan_state.active_cycle
-    ELSE excluded.active_cycle
-  END,
-  limit_reached = CASE
-    WHEN source_scan_state.active_cycle IS NOT NULL
-      AND source_scan_state.configuration_fingerprint = excluded.configuration_fingerprint
-    THEN source_scan_state.limit_reached
-    ELSE 0
-  END,
-  started_at = CASE
-    WHEN source_scan_state.active_cycle IS NOT NULL
-      AND source_scan_state.configuration_fingerprint = excluded.configuration_fingerprint
-    THEN source_scan_state.started_at
-    ELSE excluded.started_at
-  END,
-  updated_at = excluded.updated_at`,
-        args: [
-          input.sourceId,
-          input.configurationFingerprint,
-          input.proposedCycleId,
-          now,
-          now,
-        ],
-      });
+      if (resumed) {
+        await sql`
+          UPDATE source_scan_state
+          SET configuration_fingerprint = ${input.configurationFingerprint},
+              updated_at = ${now.toISOString()}::timestamptz
+          WHERE source_id = ${input.sourceId}
+        `;
+      } else {
+        await sql`
+          INSERT INTO source_scan_state (
+            source_id, configuration_fingerprint, active_cycle, limit_reached, started_at, updated_at
+          ) VALUES (
+            ${input.sourceId}, ${input.configurationFingerprint}, ${input.proposedCycleId}, false,
+            ${now.toISOString()}::timestamptz, ${now.toISOString()}::timestamptz
+          )
+          ON CONFLICT(source_id) DO UPDATE SET
+            configuration_fingerprint = EXCLUDED.configuration_fingerprint,
+            active_cycle = EXCLUDED.active_cycle,
+            limit_reached = false,
+            started_at = EXCLUDED.started_at,
+            updated_at = EXCLUDED.updated_at
+        `;
+      }
       return { cycleId, resumed };
     });
   }
@@ -796,8 +820,8 @@ ON CONFLICT(source_id) DO UPDATE SET
   async commitSourceImport(
     input: CommitSourceImportInput,
   ): Promise<CommitSourceImportResult> {
-    return this.runInTransaction(async () => {
-      const now = Date.now();
+    return this.client.begin(async (sql) => {
+      const now = new Date();
       if (
         input.mode === "duplicate" &&
         input.duplicateDocumentId === input.replaceDocumentId
@@ -805,14 +829,13 @@ ON CONFLICT(source_id) DO UPDATE SET
         throw new Error("DUPLICATE_DOCUMENT_EQUALS_REPLACEMENT");
       }
 
-      const destination = await this.client.execute({
-        sql: `SELECT source_id, relative_path, sha256, document_id
-FROM source_files
-WHERE source_id = ? AND relative_path = ?
-LIMIT 1`,
-        args: [input.sourceId, input.relativePath],
-      });
-      const destinationDocumentId = destination.rows[0]?.document_id;
+      const destination = await sql`
+        SELECT source_id, relative_path, sha256, document_id
+        FROM source_files
+        WHERE source_id = ${input.sourceId} AND relative_path = ${input.relativePath}
+        LIMIT 1
+      `;
+      const destinationDocumentId = destination[0]?.document_id;
       if (
         destinationDocumentId != null &&
         String(destinationDocumentId) !== input.replaceDocumentId
@@ -822,32 +845,33 @@ LIMIT 1`,
 
       let replacementRelativePath: string | undefined;
       if (input.replaceDocumentId) {
-        const ownership = await this.client.execute({
-          sql: `SELECT relative_path
-FROM source_files
-WHERE source_id = ? AND document_id = ? AND document_id IS NOT NULL
-LIMIT 1`,
-          args: [input.sourceId, input.replaceDocumentId],
-        });
-        const row = ownership.rows[0];
+        const ownership = await sql`
+          SELECT relative_path
+          FROM source_files
+          WHERE source_id = ${input.sourceId}
+            AND document_id = ${input.replaceDocumentId}
+            AND document_id IS NOT NULL
+          LIMIT 1
+        `;
+        const row = ownership[0];
         if (!row) throw new Error("SOURCE_DOCUMENT_NOT_OWNED");
         replacementRelativePath = String(row.relative_path);
       }
 
       const retireReplacement = async (): Promise<void> => {
         if (!input.replaceDocumentId) return;
-        await this.client.execute({
-          sql: `UPDATE documents
-SET status = 'deleted', deleted_at = ?, updated_at = ?
-WHERE id = ?`,
-          args: [now, now, input.replaceDocumentId],
-        });
+        await sql`
+          UPDATE documents
+          SET status = 'deleted', deleted_at = ${now.toISOString()}::timestamptz, updated_at = ${now.toISOString()}::timestamptz
+          WHERE id = ${input.replaceDocumentId}
+        `;
         if (replacementRelativePath !== input.relativePath) {
-          await this.client.execute({
-            sql: `DELETE FROM source_files
-WHERE source_id = ? AND relative_path = ? AND document_id = ?`,
-            args: [input.sourceId, replacementRelativePath!, input.replaceDocumentId],
-          });
+          await sql`
+            DELETE FROM source_files
+            WHERE source_id = ${input.sourceId}
+              AND relative_path = ${replacementRelativePath!}
+              AND document_id = ${input.replaceDocumentId}
+          `;
         }
       };
 
@@ -855,39 +879,33 @@ WHERE source_id = ? AND relative_path = ? AND document_id = ?`,
         documentId: string | null,
         lastOutcome: "imported" | "duplicate",
       ): Promise<void> => {
-        await this.client.execute({
-          sql: `INSERT INTO source_files (
-  source_id, relative_path, sha256, document_id, last_outcome, scan_cycle,
-  created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(source_id, relative_path) DO UPDATE SET
-  sha256 = excluded.sha256,
-  document_id = excluded.document_id,
-  last_outcome = excluded.last_outcome,
-  scan_cycle = excluded.scan_cycle,
-  updated_at = excluded.updated_at`,
-          args: [
-            input.sourceId,
-            input.relativePath,
-            input.sha256,
-            documentId,
-            lastOutcome,
-            input.scanCycle,
-            now,
-            now,
-          ],
-        });
+        await sql`
+          INSERT INTO source_files (
+            source_id, relative_path, sha256, document_id, last_outcome, scan_cycle,
+            created_at, updated_at
+          ) VALUES (
+            ${input.sourceId}, ${input.relativePath}, ${input.sha256}, ${documentId},
+            ${lastOutcome}, ${input.scanCycle}, ${now.toISOString()}::timestamptz, ${now.toISOString()}::timestamptz
+          )
+          ON CONFLICT(source_id, relative_path) DO UPDATE SET
+            sha256 = EXCLUDED.sha256,
+            document_id = EXCLUDED.document_id,
+            last_outcome = EXCLUDED.last_outcome,
+            scan_cycle = EXCLUDED.scan_cycle,
+            updated_at = EXCLUDED.updated_at
+        `;
       };
 
       if (input.mode === "duplicate") {
-        const duplicate = await this.client.execute({
-          sql: `SELECT id
-FROM documents
-WHERE id = ? AND sha256 = ? AND deleted_at IS NULL
-LIMIT 1`,
-          args: [input.duplicateDocumentId, input.sha256],
-        });
-        if (!duplicate.rows[0]) throw new Error("DUPLICATE_DOCUMENT_NOT_LIVE");
+        const duplicate = await sql`
+          SELECT id
+          FROM documents
+          WHERE id = ${input.duplicateDocumentId}
+            AND sha256 = ${input.sha256}
+            AND deleted_at IS NULL
+          LIMIT 1
+        `;
+        if (!duplicate[0]) throw new Error("DUPLICATE_DOCUMENT_NOT_LIVE");
 
         await retireReplacement();
         await upsertSourceFile(null, "duplicate");
@@ -898,16 +916,13 @@ LIMIT 1`,
         };
       }
 
-      const liveHash = await this.client.execute({
-        sql: `SELECT id
-FROM documents
-WHERE sha256 = ? AND deleted_at IS NULL
-LIMIT 1`,
-        args: [input.prepared.sha256],
-      });
-      const liveDocumentId = liveHash.rows[0]
-        ? String(liveHash.rows[0].id)
-        : undefined;
+      const liveHash = await sql`
+        SELECT id
+        FROM documents
+        WHERE sha256 = ${input.prepared.sha256} AND deleted_at IS NULL
+        LIMIT 1
+      `;
+      const liveDocumentId = liveHash[0] ? String(liveHash[0].id) : undefined;
       if (liveDocumentId && liveDocumentId !== input.replaceDocumentId) {
         await retireReplacement();
         await upsertSourceFile(null, "duplicate");
@@ -921,53 +936,40 @@ LIMIT 1`,
       }
 
       await retireReplacement();
-      await this.client.execute({
-        sql: `INSERT INTO documents (
-  id, current_revision_id, original_filename, mime_type, extension,
-  size_bytes, sha256, status, metadata, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?)`,
-        args: [
-          input.prepared.documentId,
-          input.prepared.revisionId,
-          input.prepared.originalFilename,
-          input.prepared.mimeType,
-          input.prepared.extension ?? null,
-          input.prepared.sizeBytes,
-          input.prepared.sha256,
-          JSON.stringify(input.prepared.metadata),
-          now,
-          now,
-        ],
-      });
-      await this.client.execute({
-        sql: `INSERT INTO document_revisions (
-  id, document_id, revision, storage_key, sha256, size_bytes,
-  parser_name, parser_version, chunker_name, chunker_version,
-  embedding_model, embedding_dimensions, embedding_version, chunk_count, created_at
-) VALUES (?, ?, 1, ?, ?, ?, 'none', '0', 'none', '0', 'none', 0, '0', 0, ?)`,
-        args: [
-          input.prepared.revisionId,
-          input.prepared.documentId,
-          input.prepared.storageKey,
-          input.prepared.sha256,
-          input.prepared.sizeBytes,
-          now,
-        ],
-      });
+      await sql`
+        INSERT INTO documents (
+          id, current_revision_id, original_filename, mime_type, extension,
+          size_bytes, sha256, status, metadata, created_at, updated_at
+        ) VALUES (
+          ${input.prepared.documentId}, ${input.prepared.revisionId},
+          ${input.prepared.originalFilename}, ${input.prepared.mimeType},
+          ${input.prepared.extension ?? null}, ${input.prepared.sizeBytes},
+          ${input.prepared.sha256}, 'processing',
+          ${JSON.stringify(input.prepared.metadata)}::jsonb,
+          ${now.toISOString()}::timestamptz, ${now.toISOString()}::timestamptz
+        )
+      `;
+      await sql`
+        INSERT INTO document_revisions (
+          id, document_id, revision, storage_key, sha256, size_bytes,
+          parser_name, parser_version, chunker_name, chunker_version,
+          embedding_model, embedding_dimensions, embedding_version, chunk_count, created_at
+        ) VALUES (
+          ${input.prepared.revisionId}, ${input.prepared.documentId}, 1,
+          ${input.prepared.storageKey}, ${input.prepared.sha256},
+          ${input.prepared.sizeBytes}, 'none', '0', 'none', '0', 'none', 0, '0', 0, ${now.toISOString()}::timestamptz
+        )
+      `;
 
       const jobId = newId("job");
-      await this.client.execute({
-        sql: `INSERT INTO ingestion_jobs (
-  id, document_id, revision_id, status, attempt, max_attempts, created_at, updated_at
-) VALUES (?, ?, ?, 'queued', 0, 3, ?, ?)`,
-        args: [
-          jobId,
-          input.prepared.documentId,
-          input.prepared.revisionId,
-          now,
-          now,
-        ],
-      });
+      await sql`
+        INSERT INTO ingestion_jobs (
+          id, document_id, revision_id, status, attempt, max_attempts, created_at, updated_at
+        ) VALUES (
+          ${jobId}, ${input.prepared.documentId}, ${input.prepared.revisionId},
+          'queued', 0, 3, ${now.toISOString()}::timestamptz, ${now.toISOString()}::timestamptz
+        )
+      `;
       await upsertSourceFile(input.prepared.documentId, "imported");
       return {
         outcome: "imported",
@@ -985,78 +987,34 @@ LIMIT 1`,
     cycleId: string;
     limitReached: boolean;
   }): Promise<void> {
-    return this.runInTransaction(async () => {
-      const state = await this.client.execute({
-        sql: "SELECT active_cycle FROM source_scan_state WHERE source_id = ?",
-        args: [input.sourceId],
-      });
-      if (state.rows[0]?.active_cycle !== input.cycleId) return;
+    return this.client.begin(async (sql) => {
+      const state = await sql`
+        SELECT active_cycle FROM source_scan_state WHERE source_id = ${input.sourceId}
+      `;
+      if (state[0]?.active_cycle !== input.cycleId) return;
 
-      const now = Date.now();
+      const now = new Date();
       if (input.limitReached) {
-        await this.client.execute({
-          sql: `UPDATE source_scan_state
-SET limit_reached = 1, updated_at = ?
-WHERE source_id = ? AND active_cycle = ?`,
-          args: [now, input.sourceId, input.cycleId],
-        });
+        await sql`
+          UPDATE source_scan_state
+          SET limit_reached = true, updated_at = ${now.toISOString()}::timestamptz
+          WHERE source_id = ${input.sourceId} AND active_cycle = ${input.cycleId}
+        `;
       } else {
-        await this.client.execute({
-          sql: `DELETE FROM source_files
-WHERE source_id = ? AND document_id IS NULL AND scan_cycle <> ?`,
-          args: [input.sourceId, input.cycleId],
-        });
-        await this.client.execute({
-          sql: `UPDATE source_scan_state
-SET active_cycle = NULL, limit_reached = 0, updated_at = ?
-WHERE source_id = ? AND active_cycle = ?`,
-          args: [now, input.sourceId, input.cycleId],
-        });
+        await sql`
+          DELETE FROM source_files
+          WHERE source_id = ${input.sourceId} AND document_id IS NULL AND scan_cycle <> ${input.cycleId}
+        `;
+        await sql`
+          UPDATE source_scan_state
+          SET active_cycle = NULL, limit_reached = false, updated_at = ${now.toISOString()}::timestamptz
+          WHERE source_id = ${input.sourceId} AND active_cycle = ${input.cycleId}
+        `;
       }
     });
   }
 }
 
-export function createKnowledgeRepository(url: string): KnowledgeRepository {
-  return new LibSqlKnowledgeRepository(createLibsqlDb(url), url);
-}
-
-function asDate(value: unknown): Date | undefined {
-  if (value == null) return undefined;
-  if (value instanceof Date) return value;
-  const n = Number(value);
-  return Number.isFinite(n) ? new Date(n) : undefined;
-}
-
-function jobFromRaw(row: Record<string, unknown>): IngestionJob {
-  return toJob({
-    id: String(row.id),
-    documentId: String(row.document_id),
-    revisionId: String(row.revision_id),
-    status: String(row.status),
-    attempt: Number(row.attempt),
-    maxAttempts: Number(row.max_attempts),
-    lockedBy: row.locked_by as string | null,
-    lockedAt: asDate(row.locked_at) ?? null,
-    startedAt: asDate(row.started_at) ?? null,
-    completedAt: asDate(row.completed_at) ?? null,
-    error: row.error as string | null,
-    createdAt: asDate(row.created_at) ?? new Date(),
-    updatedAt: asDate(row.updated_at) ?? new Date(),
-  });
-}
-
-function archiveImportFromRaw(row: Record<string, unknown>): ArchiveImport {
-  return toArchiveImport({
-    id: String(row.id),
-    collectionId: row.collection_id as string | null,
-    originalFilename: String(row.original_filename),
-    metadata: JSON.parse(String(row.metadata ?? "{}")),
-    state: String(row.state),
-    entries: JSON.parse(String(row.entries ?? "[]")),
-    error: row.error as string | null,
-    createdAt: asDate(row.created_at) ?? new Date(),
-    startedAt: asDate(row.started_at) ?? null,
-    completedAt: asDate(row.completed_at) ?? null,
-  });
+export function createPostgresKnowledgeRepository(clientOrUrl: string | PostgresClient): PostgresKnowledgeRepository {
+  return new PostgresKnowledgeRepository(clientOrUrl);
 }

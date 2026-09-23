@@ -68,55 +68,59 @@ export function placeholders(n: number): string {
   return Array.from({ length: n }, () => "?").join(",");
 }
 
-export function compileFilters(clauses: FilterClause[]): { sql: string; args: unknown[] } {
+export function compileFilters(
+  clauses: FilterClause[],
+  dialect: "libsql" | "postgres" = "libsql",
+): { sql: string; args: unknown[] } {
   const parts: string[] = [];
   const args: unknown[] = [];
+  const isPg = dialect === "postgres";
+
   for (const cl of clauses) {
-    const path = `$.${cl.field}`;
+    const path = isPg ? `{${cl.field.split(".").join(",")}}` : `$.${cl.field}`;
+    const extractC = isPg ? "c.metadata #>> ?::text[]" : "json_extract(c.metadata, ?)";
+    const extractD = isPg ? "d.metadata #>> ?::text[]" : "json_extract(d.metadata, ?)";
+    const numC = isPg ? `CAST(${extractC} AS NUMERIC)` : `CAST(${extractC} AS REAL)`;
+    const numD = isPg ? `CAST(${extractD} AS NUMERIC)` : `CAST(${extractD} AS REAL)`;
+
     switch (cl.op) {
       case "eq":
-        parts.push("(json_extract(c.metadata, ?) = ? OR json_extract(d.metadata, ?) = ?)");
-        args.push(path, cl.value, path, cl.value);
+        parts.push(`(${extractC} = ? OR ${extractD} = ?)`);
+        args.push(path, String(cl.value), path, String(cl.value));
         break;
       case "neq":
         parts.push(
-          "(coalesce(json_extract(c.metadata, ?), json_extract(d.metadata, ?)) IS NOT ?)",
+          `(${extractC} IS DISTINCT FROM ? AND ${extractD} IS DISTINCT FROM ?)`,
         );
-        args.push(path, path, cl.value);
+        args.push(path, String(cl.value), path, String(cl.value));
         break;
       case "exists": {
         const want = cl.value !== false;
         if (want) {
-          parts.push("(json_extract(c.metadata, ?) IS NOT NULL OR json_extract(d.metadata, ?) IS NOT NULL)");
+          parts.push(`(${extractC} IS NOT NULL OR ${extractD} IS NOT NULL)`);
           args.push(path, path);
         } else {
-          parts.push("(json_extract(c.metadata, ?) IS NULL AND json_extract(d.metadata, ?) IS NULL)");
+          parts.push(`(${extractC} IS NULL AND ${extractD} IS NULL)`);
           args.push(path, path);
         }
         break;
       }
       case "gte":
-        parts.push(
-          "(CAST(json_extract(c.metadata, ?) AS REAL) >= ? OR CAST(json_extract(d.metadata, ?) AS REAL) >= ?)",
-        );
+        parts.push(`(${numC} >= ? OR ${numD} >= ?)`);
         args.push(path, cl.value, path, cl.value);
         break;
       case "lte":
-        parts.push(
-          "(CAST(json_extract(c.metadata, ?) AS REAL) <= ? OR CAST(json_extract(d.metadata, ?) AS REAL) <= ?)",
-        );
+        parts.push(`(${numC} <= ? OR ${numD} <= ?)`);
         args.push(path, cl.value, path, cl.value);
         break;
       case "in": {
-        const values = Array.isArray(cl.value) ? cl.value : [];
+        const values = Array.isArray(cl.value) ? cl.value.map(String) : [];
         if (values.length === 0) {
-          parts.push("0");
+          parts.push("0 = 1");
           break;
         }
         const ph = placeholders(values.length);
-        parts.push(
-          `(json_extract(c.metadata, ?) IN (${ph}) OR json_extract(d.metadata, ?) IN (${ph}))`,
-        );
+        parts.push(`(${extractC} IN (${ph}) OR ${extractD} IN (${ph}))`);
         args.push(path, ...values, path, ...values);
         break;
       }

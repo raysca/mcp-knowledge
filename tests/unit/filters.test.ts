@@ -25,6 +25,19 @@ describe("filters", () => {
     expect(args).toEqual(["$.department", "legal", "$.department", "legal"]);
   });
 
+  test("compiles eq to #>> ?::text[] on postgres chunk or document metadata", () => {
+    const { sql, args } = compileFilters([{ field: "department", op: "eq", value: "legal" }], "postgres");
+    expect(sql).toContain("c.metadata #>> ?::text[]");
+    expect(sql).toContain("d.metadata #>> ?::text[]");
+    expect(args).toEqual(["{department}", "legal", "{department}", "legal"]);
+  });
+
+  test("compiles nested path for postgres", () => {
+    const { sql, args } = compileFilters([{ field: "user.role", op: "eq", value: "admin" }], "postgres");
+    expect(sql).toContain("c.metadata #>> ?::text[]");
+    expect(args).toEqual(["{user,role}", "admin", "{user,role}", "admin"]);
+  });
+
   test("rejects unsafe field names", () => {
     expect(() => parseFilters({ "dept) OR 1=1": "x" })).toThrow(/Invalid filter field/);
   });

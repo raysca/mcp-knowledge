@@ -126,6 +126,7 @@ application decides how to use the returned passages.
   or ingest an allowed public URL.
 - **Common document formats** — PDF, Word, PowerPoint, Excel, HTML, Markdown,
   text, and more through [AnyDoc](https://github.com/firecrawl/anydoc).
+- **Flexible storage backends** — zero-config embedded libSQL for all-in-one local setups, or PostgreSQL + pgvector (HNSW cosine search, GIN tsvector, and SKIP LOCKED job queues) for scalable multi-worker architectures.
 - **Simple local operations** — one Bun process, one container, one persistent
   named volume, plus documented backup and recovery.
 
@@ -273,6 +274,76 @@ URL ingestion is available through `POST /api/v1/documents/from-url`.
 Loopback, private, link-local, and cloud-metadata targets are blocked,
 including through redirects.
 
+## Storage backends: libSQL and PostgreSQL
+
+MCP Knowledge supports two database backends:
+
+| Feature | libSQL (default) | PostgreSQL |
+| --- | --- | --- |
+| **Driver** | `libsql` | `postgres` |
+| **Vector Search** | Embedded vector search (`F32_BLOB`) | `pgvector` cosine (`vector_cosine_ops` via HNSW) |
+| **Lexical Search** | SQLite FTS5 (`unicode61`) | PostgreSQL FTS (`tsvector` + GIN index) |
+| **Job Queue** | Serialized in-process queue | Distributed `FOR UPDATE SKIP LOCKED` |
+| **Setup** | Zero-config (`/app/data/app.db`) | Configured via `DATABASE_URL` |
+| **Best For** | Single-container local deployment | Multi-worker and scalable server deployment |
+
+### Using PostgreSQL with pgvector
+
+To use PostgreSQL, install the `pgvector` extension, set `DATABASE_DRIVER=postgres`, and pass your connection URL via `DATABASE_URL`:
+
+```bash
+docker run -d \
+  --name mcp-knowledge \
+  --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
+  -e DATABASE_DRIVER=postgres \
+  -e DATABASE_URL='postgres://postgres:postgres@pg-host:5432/mcp_knowledge' \
+  -v mcp-knowledge-data:/app/data \
+  ghcr.io/Capgemini-AIE/mcp-knowledge:0.1
+```
+
+Database migrations (table schema, `pgvector` extension activation, HNSW vector index, and tsvector generated columns) are automatically applied on container startup.
+
+### Docker Compose with pgvector
+
+The repository includes a ready-to-use PostgreSQL and pgvector configuration in `compose.yaml`:
+
+```yaml
+services:
+  knowledge:
+    image: ghcr.io/Capgemini-AIE/mcp-knowledge:0.1
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      DATABASE_DRIVER: postgres
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/mcp_knowledge
+      DASHBOARD_PASSPHRASE: "${DASHBOARD_PASSPHRASE:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mcp_knowledge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mcp_knowledge"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+```
+
+### Multi-worker scaling
+
+With PostgreSQL, you can scale API serving and document ingestion independently using the `ROLE` environment variable:
+
+- `ROLE=all` (default): Runs both the HTTP API server and the background ingestion worker loop.
+- `ROLE=api`: Stateless HTTP API and UI server without background ingestion loops. Run multiple instances behind a load balancer.
+- `ROLE=worker`: Dedicated background worker processing ingestion and archive extraction jobs claimed via PostgreSQL `FOR UPDATE SKIP LOCKED`. Run multiple worker containers in parallel without conflicting.
+
 ## Exposing beyond loopback
 
 Set `DASHBOARD_PASSPHRASE` before publishing the service on a LAN, through a
@@ -341,9 +412,14 @@ deliberate for the `v0.1` release.
 Requires [Bun](https://bun.sh/):
 
 ```bash
+# Default embedded libSQL:
 bun install
 bun db:migrate
 bun dev
+
+# Or with PostgreSQL + pgvector:
+DATABASE_DRIVER=postgres DATABASE_URL="postgres://postgres:postgres@localhost:5432/mcp_knowledge" bun db:migrate
+DATABASE_DRIVER=postgres DATABASE_URL="postgres://postgres:postgres@localhost:5432/mcp_knowledge" bun dev
 ```
 
 Before committing:

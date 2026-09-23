@@ -5,6 +5,11 @@ original in the named Docker volume `mcp-knowledge-data`. Back up the whole
 volume while the `knowledge` service is stopped; a database-only or
 documents-only copy is not a recoverable backup.
 
+For deployments configured with PostgreSQL (`DATABASE_DRIVER=postgres`), document
+metadata, chunks, vector embeddings, and jobs reside in PostgreSQL. Back up the
+PostgreSQL database with standard tools (e.g. `pg_dump -Fc` or automated managed database
+snapshots) synchronously alongside the canonical document storage.
+
 These archives contain the original documents, extracted content, embeddings,
 job history, collections, and API-key records. Store them with the same access
 controls as the running service's data.

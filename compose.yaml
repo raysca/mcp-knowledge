@@ -7,6 +7,27 @@ services:
       DASHBOARD_PASSPHRASE: "${DASHBOARD_PASSPHRASE:-}"
     volumes: ["mcp-knowledge-data:/app/data"]
     restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mcp-knowledge-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mcp_knowledge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mcp_knowledge"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
 volumes:
   mcp-knowledge-data:
     name: mcp-knowledge-data
+  pgdata:
+    name: mcp-knowledge-pgdata
