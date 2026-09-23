@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Documented MCP metadata filters, bounded search expansion, and `get_chunk`
+  neighbor controls. `document` expansion remains REST-only, and MCP tool
+  errors retain stable public codes.
+
 ## 0.1.0 - 2026-09-07
 
 First Docker-first local release, for 100–1,000-document local corpora on

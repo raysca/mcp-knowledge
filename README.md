@@ -163,6 +163,41 @@ The MCP surface is intentionally read-only:
 
 Use the dashboard or REST API to upload and manage documents.
 
+### Search context controls
+
+`search_documents` accepts collection and document ID filters, structured
+metadata filters, and bounded context expansion. For example, this request
+filters to a collection and a metadata value, then includes one neighboring
+chunk on each side of every match:
+
+```json
+{
+  "name": "search_documents",
+  "arguments": {
+    "query": "winter gloves",
+    "collection_ids": ["collection_handbooks"],
+    "filters": {"department": "outdoor"},
+    "expand": {"type": "neighbors", "before": 1, "after": 1}
+  }
+}
+```
+
+MCP expansion supports `none`, `neighbors`, and `section`, with `before` and
+`after` counts from 0 to 5. `expand.type: "document"` remains REST-only; MCP
+rejects it because returning an entire document can produce an unexpectedly
+large result. To retrieve context around a known chunk, call `get_chunk`:
+
+```json
+{
+  "name": "get_chunk",
+  "arguments": {"chunk_id": "chunk_abc123", "before": 1, "after": 2}
+}
+```
+
+Invalid arguments and metadata filters return MCP tool errors (`isError: true`)
+whose text retains stable public codes, such as `INVALID_TOOL_ARGUMENTS` and
+`INVALID_FILTER`.
+
 If authentication is enabled, include a generated API key:
 
 ```json
