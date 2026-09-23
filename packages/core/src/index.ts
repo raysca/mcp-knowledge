@@ -30,6 +30,7 @@ export {
 } from "./services/source-import-service.ts";
 export { assertSafeUrl, isBlockedIp } from "./ssrf.ts";
 export { DocumentService, originalStorageKey } from "./services/document-service.ts";
+export { DocumentCatalogService, CATALOG_FIELDS, type CatalogInput, type CatalogResponse } from "./services/document-catalog-service.ts";
 export {
   pageNormalizedDocument,
   encodeBlockCursor,

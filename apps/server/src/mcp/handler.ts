@@ -1,8 +1,10 @@
 import {
   AppError,
+  CATALOG_FIELDS,
   type CollectionService,
   type CollapsedSearchHit,
   type DocumentService,
+  type DocumentCatalogService,
   type SearchHit,
   type SearchService,
 } from "@mcp-knowledge/core";
@@ -16,6 +18,7 @@ type McpServices = {
     MAX_LIST_LIMIT: number;
   };
   documents: DocumentService;
+  catalog: DocumentCatalogService;
   collections: CollectionService;
   search: SearchService;
 };
@@ -99,6 +102,22 @@ const tools = (env: McpServices["env"]) => [
     description: "List collections.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "list_document_catalog",
+    description: "List lightweight document metadata (ready by default). Follow nextCursor without if_corpus_version; restart if corpusVersion changes between pages. Use if_corpus_version to check a completed catalog for changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: env.MAX_LIST_LIMIT },
+        cursor: { type: "string", minLength: 1 },
+        status: { type: "string", enum: ["pending", "processing", "ready", "failed", "deleted"], default: "ready" },
+        collection_id: { type: "string", minLength: 1 },
+        filters: { type: "object" },
+        fields: { type: "array", minItems: 1, items: { type: "string", enum: CATALOG_FIELDS } },
+        if_corpus_version: { type: "string", pattern: "^generation:(0|[1-9][0-9]*)$", description: "A generation with a nonnegative safe integer (at most 9007199254740991). An equal version returns only corpusVersion and unchanged: true." },
+      },
+    },
+  },
 ];
 
 function textResult(value: unknown) {
@@ -152,6 +171,17 @@ export async function handleMcp(body: unknown, svc: McpServices): Promise<unknow
 }
 
 async function callTool(name: string, args: Record<string, unknown>, svc: McpServices) {
+  if (name === "list_document_catalog") {
+    return svc.catalog.list({
+      collectionId: args.collection_id,
+      status: args.status,
+      cursor: args.cursor,
+      limit: args.limit,
+      fields: args.fields,
+      filters: args.filters,
+      ifCorpusVersion: args.if_corpus_version,
+    });
+  }
   if (name === "search_documents") {
     const limit = boundedInteger(args.limit, {
       name: "limit",

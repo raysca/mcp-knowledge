@@ -4,6 +4,7 @@ import type {
   ArchiveImportService,
   CollectionService,
   DocumentService,
+  DocumentCatalogService,
   SearchService,
   UrlIngestService,
 } from "@mcp-knowledge/core";
@@ -25,6 +26,7 @@ import {
 export type AppServices = {
   env: AppEnv;
   documents: DocumentService;
+  catalog: DocumentCatalogService;
   archives: ArchiveImportService;
   collections: CollectionService;
   search: SearchService;
@@ -245,6 +247,24 @@ export async function handleRequest(
         await svc.collections.delete(id);
         return json({ ok: true }, 200, requestId);
       }
+    }
+
+    if (url.pathname === "/api/v1/document-catalog" && req.method === "GET") {
+      const query = url.searchParams;
+      let filters: unknown;
+      if (query.has("filters")) {
+        try { filters = JSON.parse(query.get("filters")!); }
+        catch { throw new AppError("INVALID_FILTER", "filters must be valid JSON.", 400); }
+      }
+      return json(await svc.catalog.list({
+        collectionId: query.get("collectionId") ?? undefined,
+        status: query.get("status") ?? undefined,
+        cursor: query.get("cursor") ?? undefined,
+        limit: query.has("limit") ? Number(query.get("limit")) : undefined,
+        fields: query.has("fields") ? query.get("fields")!.split(",") : undefined,
+        filters,
+        ifCorpusVersion: query.get("ifCorpusVersion") ?? undefined,
+      }), 200, requestId);
     }
 
     if (url.pathname === "/api/v1/documents" && req.method === "GET") {
