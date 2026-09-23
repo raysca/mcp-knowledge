@@ -64,6 +64,42 @@ describe("title-aware lexical fallback", () => {
     expect(ids(await index.search({ query: "garden unavailable", limit: 8 }))).toEqual(["garden"]);
   });
 
+  for (const term of ["λέξη", "ộ", "बीज"]) {
+    test(`fallback preserves the searchable Unicode spelling of ${term}`, async () => {
+      await add("unicode", `${term} garden`);
+      const hits = await index.search({ query: `${term} garden missing`, limit: 8 });
+      expect(ids(hits)).toEqual(["unicode"]);
+      expect(hits[0]).toMatchObject({ lexicalMatchMode: "fallback" });
+    });
+  }
+
+  for (const term of ["λέξη", "ộ", "बीज", "café"]) {
+    test(`canonical and repeated variants of ${term} count as one eligible term`, async () => {
+      await add("one", `${term} ${term.normalize("NFD")}`);
+      await add("two", `${term} garden`);
+      for (const variants of [
+        `${term} ${term.toUpperCase()} ${term.normalize("NFD")}`,
+        `${term.normalize("NFD")} ${term} ${term}`,
+      ]) {
+        expect(ids(await index.search({ query: `${variants} garden missing`, limit: 8 }))).toEqual(["two"]);
+      }
+    });
+  }
+
+  test("Latin accent and identifier punctuation variants cannot double-count a term", async () => {
+    await add("latin", "café");
+    await add("identifier", "INV-0042");
+    expect(await index.search({ query: "café cafe garden missing", limit: 8 })).toEqual([]);
+    expect(await index.search({ query: "INV-0042 INV/0042 garden missing", limit: 8 })).toEqual([]);
+  });
+
+  test("distinct accented spellings retained by unicode61 remain distinct eligible terms", async () => {
+    await add("greek", "λέξη");
+    await add("vietnamese", "ộ");
+    expect(await index.search({ query: "λέξη λεξη missing", limit: 8 })).toEqual([]);
+    expect(await index.search({ query: "ộ o missing", limit: 8 })).toEqual([]);
+  });
+
   test("stop words stay in exact queries; one eligible term and stop-word-only queries never broaden", async () => {
     await add("words", "the and");
     await add("garden", "garden");

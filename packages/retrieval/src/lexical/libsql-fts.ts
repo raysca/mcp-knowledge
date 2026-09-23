@@ -17,15 +17,27 @@ const FALLBACK_STOP_WORDS = new Set(
   "a an and are as at be by can do for from how i in is it me my of on or please that the this to was we what with you".split(" "),
 );
 
-function fallbackTerms(tokens: string[]): string[] {
-  // Match unicode61 word boundaries while keeping punctuation-separated identifiers
-  // as a single quoted phrase. Normalize case/accents before counting distinct terms.
-  const terms = tokens.map((token) => token.toLowerCase().normalize("NFD")
-    .replace(/\p{M}/gu, "").match(/[\p{L}\p{N}]+/gu)?.join(" ") ?? "");
-  return [...new Set(terms)].filter((term) => term && !FALLBACK_STOP_WORDS.has(term));
-}
-
 const quoted = (term: string) => `"${term}"`;
+
+function fallbackTerms(tokens: string[]): string[] {
+  const groups = new Map<string, Set<string>>();
+  for (const token of tokens) {
+    // Identity only: canonical/case variants and punctuation-equivalent identifier
+    // phrases count once. unicode61 folds simple Latin accents, but retains Greek
+    // accents and Latin characters with multiple diacritics (e.g. Vietnamese ộ).
+    const key = token.normalize("NFC").toLowerCase().replace(/\p{Script=Latin}/gu, (letter) => {
+      const decomposed = letter.normalize("NFD");
+      return /^[a-z][\u0300-\u036f]$/u.test(decomposed) ? decomposed[0]! : letter;
+    }).match(/[\p{L}\p{N}\p{Co}]+/gu)?.join(" ") ?? "";
+    if (!key || FALLBACK_STOP_WORDS.has(key)) continue;
+    const variants = groups.get(key) ?? new Set<string>();
+    // Never normalize the searchable spelling: even canonical equivalents can
+    // tokenize differently. An OR group retains them all but contributes one match.
+    variants.add(quoted(token));
+    groups.set(key, variants);
+  }
+  return [...groups.values()].map((variants) => `(${[...variants].join(" OR ")})`);
+}
 
 export class LibsqlLexicalIndex implements LexicalIndex {
   private readonly client: Client;
@@ -58,14 +70,14 @@ export class LibsqlLexicalIndex implements LexicalIndex {
         conditions.push(`(${terms.map(() => `CASE WHEN document_chunks_fts.rowid IN
           (SELECT rowid FROM document_chunks_fts WHERE document_chunks_fts MATCH ?)
           THEN 1 ELSE 0 END`).join(" + ")}) >= 2`);
-        args.push(...terms.map(quoted));
+        args.push(...terms);
       }
       if (exact.length) {
         conditions.push(`c.id NOT IN (${placeholders(exact.length)})`);
         args.push(...exact.map((hit) => hit.chunkId));
       }
       const fallback = await this.searchPass(
-        { ...input, limit: input.limit - exact.length }, terms.map(quoted).join(" OR "), "fallback",
+        { ...input, limit: input.limit - exact.length }, terms.join(" OR "), "fallback",
         conditions.length ? ` AND ${conditions.join(" AND ")}` : "", args,
       );
       return [...exact, ...fallback.map((hit, i) => ({ ...hit, lexicalRank: exact.length + i + 1 }))];
