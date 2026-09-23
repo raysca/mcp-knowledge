@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import {
   ApiKeyService,
@@ -20,6 +21,14 @@ import { handleRequest, type AppServices } from "./http/router.ts";
 import { LocalDirectorySource } from "./startup-scan/local-directory-source.ts";
 import { StartupIngestionCoordinator } from "./startup-scan/coordinator.ts";
 import { startWorkerLoop } from "./workers/loop.ts";
+
+const processCursorKey = randomBytes(32);
+
+function documentCursorKey(passphrase?: string): Uint8Array {
+  return passphrase
+    ? createHmac("sha256", passphrase).update("mcp-knowledge:document-block-cursor:v1").digest()
+    : processCursorKey;
+}
 
 export type AppOverrides = {
   createDirectorySource?: (input: {
@@ -56,7 +65,12 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   const vectors = new LibsqlVectorIndex(env.DATABASE_URL);
   const lexical = new LibsqlLexicalIndex(env.DATABASE_URL);
   const ingestion = new IngestionService(repo, blobs, registry, countTokens, embedder, vectors, env);
-  const documents = new DocumentService(repo, blobs, env.MAX_UPLOAD_BYTES);
+  const documents = new DocumentService(
+    repo,
+    blobs,
+    env.MAX_UPLOAD_BYTES,
+    documentCursorKey(env.DASHBOARD_PASSPHRASE),
+  );
   const archives = new ArchiveImportService(repo, blobs, documents, {
     MAX_UPLOAD_BYTES: env.MAX_UPLOAD_BYTES,
     MAX_ARCHIVE_ENTRIES: env.MAX_ARCHIVE_ENTRIES,

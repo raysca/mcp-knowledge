@@ -1,19 +1,27 @@
+import { randomBytes } from "node:crypto";
 import { AppError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { Document } from "../domain/types.ts";
+import type { NormalizedDocument } from "../domain/normalized.ts";
 import type { BlobStore, KnowledgeRepository } from "../ports.ts";
 import { extensionOf, isAllowedUpload, sniffMime } from "../mime.ts";
+import { pageNormalizedDocument, type DocumentPageResult } from "./document-page.ts";
 
 export function originalStorageKey(documentId: string, revisionId: string): string {
   return `documents/${documentId}/revisions/${revisionId}/original`;
 }
 
 export class DocumentService {
+  private readonly cursorKey: Uint8Array;
+
   constructor(
     private readonly repo: KnowledgeRepository,
     private readonly blobs: BlobStore,
     private readonly maxUploadBytes: number,
-  ) {}
+    cursorKey: Uint8Array = randomBytes(32),
+  ) {
+    this.cursorKey = Uint8Array.from(cursorKey);
+  }
 
   async upload(input: {
     filename: string;
@@ -134,6 +142,32 @@ export class DocumentService {
     }
     const blob = await this.blobs.get(revision.normalizedStorageKey);
     return JSON.parse(await blob.text());
+  }
+
+  async normalizedPage(id: string, options: {
+    cursor?: string;
+    blockLimit?: number;
+    maxChars?: number;
+    headings?: string[];
+  } = {}): Promise<DocumentPageResult> {
+    const doc = await this.get(id);
+    if (!doc.currentRevisionId) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
+    const revision = await this.repo.getRevision(doc.currentRevisionId);
+    if (!revision?.normalizedStorageKey) {
+      throw new AppError("DOCUMENT_NOT_FOUND", "Normalized document is not ready.", 404);
+    }
+    const blob = await this.blobs.get(revision.normalizedStorageKey);
+    const normalized = JSON.parse(await blob.text()) as NormalizedDocument;
+    return pageNormalizedDocument({
+      documentId: id,
+      revisionId: revision.id,
+      normalized,
+      cursor: options.cursor,
+      blockLimit: options.blockLimit ?? 50,
+      maxChars: options.maxChars ?? 32_000,
+      headings: options.headings,
+      cursorKey: this.cursorKey,
+    });
   }
 
   async reindex(id: string) {
