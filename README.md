@@ -389,6 +389,108 @@ URL ingestion is available through `POST /api/v1/documents/from-url`.
 Loopback, private, link-local, and cloud-metadata targets are blocked,
 including through redirects.
 
+### Add metadata during a directory scan
+
+Put `.mcp-knowledge-manifest.json` at the root of `INGEST_DATA_DIR`. Only that
+root manifest is loaded; files with the same name anywhere in the tree are
+excluded from ingestion. For example:
+
+```json
+{
+  "rules": [
+    { "glob": "guides/**/*.md", "metadata": { "documentType": "guide", "audience": "general" } },
+    { "glob": "guides/safety/*.md", "metadata": { "audience": "specialist" } }
+  ]
+}
+```
+
+Rules match paths relative to the scan root, in order. Matching metadata
+objects are merged shallowly, so the later rule overrides `audience` for
+matching safety guides. The safe glob subset allows relative, forward-slash
+paths with `*`, `**`, and `?`; absolute paths, `.`/`..` segments, and
+brace, bracket, or extglob expansion are rejected. The manifest must be a
+regular UTF-8 JSON file no larger than 1 MiB, with only a `rules` array;
+each rule contains only `glob` and `metadata`. Invalid manifests fail the
+startup scan before files are ingested.
+
+Restart the service after adding or changing the manifest. A scan compares
+manifest bytes as well as file content: changing matching metadata replaces
+the scanner-owned document with a new document ID, even when its file bytes
+are unchanged. The scanner always sets `sourcePath` to the actual relative
+file path, including after a rename; a manifest cannot override it. Manifest
+metadata is stored for direct scanner-owned document imports. It does not
+assign metadata to individual members extracted from a scanned ZIP.
+
+### List the document catalog
+
+`GET /api/v1/document-catalog` and the MCP `list_document_catalog` tool expose
+the same lightweight catalog. They require the usual authentication when a
+passphrase is configured; an API key with `read` scope is sufficient. The
+default selects live `ready` documents and returns only `id`, `revisionId`,
+`title`, `sourcePath`, and `metadata`. The allowed projection is fixed to those
+five fields plus `status` and `updatedAt`; fields such as storage keys and
+hashes cannot be requested. Set `status` to `pending`, `processing`, `ready`,
+`failed`, or `deleted` to select another status. `limit` defaults to 50 (or
+`MAX_LIST_LIMIT` if lower) and cannot exceed `MAX_LIST_LIMIT`.
+
+For REST, `fields` is a comma-separated list and `filters` is a JSON-encoded
+query parameter. This example filters metadata, narrows to a collection, and
+requests a fixed projection:
+
+```bash
+curl -sS -G 'http://127.0.0.1:3000/api/v1/document-catalog' \
+  -H 'Authorization: Bearer <read-api-key>' \
+  --data-urlencode 'collectionId=collection_guides' \
+  --data-urlencode 'filters={"documentType":"guide","year":{"gte":2025}}' \
+  --data-urlencode 'fields=id,title,sourcePath,metadata' \
+  --data-urlencode 'limit=50'
+```
+
+Use the corresponding MCP tool arguments for the same request:
+
+```json
+{
+  "name": "list_document_catalog",
+  "arguments": {
+    "collection_id": "collection_guides",
+    "filters": { "documentType": "guide", "year": { "gte": 2025 } },
+    "fields": ["id", "title", "sourcePath", "metadata"],
+    "limit": 50
+  }
+}
+```
+
+Filter fields can be metadata keys or dotted paths. A scalar value means
+equality; operator objects support `eq`, `neq`, `in`, `exists`, `gte`, and
+`lte`. REST uses `collectionId` and `ifCorpusVersion`; MCP uses
+`collection_id` and `if_corpus_version`. Both responses use `corpusVersion`,
+`items`, and optional `nextCursor`, with the same camelCase item fields.
+
+For a following page, send the returned cursor as REST `cursor=<nextCursor>`
+or MCP `{ "name": "list_document_catalog", "arguments": { "cursor": "<nextCursor>" } }`,
+along with the original query and projection parameters. For a later refresh
+of the completed REST query above, use the same parameters and add
+`ifCorpusVersion=generation:123` (replacing `123` with the saved generation).
+For MCP, add `"if_corpus_version": "generation:123"` to the same arguments.
+
+Follow `nextCursor` with the **same status, collection, filters, fields, and limit**
+until it is absent. Do not send `ifCorpusVersion` or `if_corpus_version` while
+paging: an equal version returns `{ "corpusVersion": "generation:…",
+"unchanged": true }` without a page, even if a cursor was supplied. Catalog
+pages are live reads rather than a frozen snapshot. Compare every page's
+`corpusVersion` with the first page; if it changes, discard the collected
+pages and restart from the first page.
+
+After finishing a query, save its `corpusVersion`. On a later refresh of that
+**same completed query and projection**, send `ifCorpusVersion` (REST) or
+`if_corpus_version` (MCP) with the saved version. An unchanged corpus returns
+only `corpusVersion` and `unchanged: true`; a changed corpus returns the first
+page, which you can continue without a conditional parameter. Version changes
+can reflect changes outside your filter, so compare the returned items. The
+catalog version is separate from document-page cursors; server deployments
+still need an independent `DOCUMENT_CURSOR_SECRET` as described in
+[Exposing beyond loopback](#exposing-beyond-loopback).
+
 ## Exposing beyond loopback
 
 Set `DASHBOARD_PASSPHRASE` before publishing the service on a LAN, through a

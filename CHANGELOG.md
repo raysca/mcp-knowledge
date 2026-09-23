@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a versioned, paginated document catalog through REST
+  (`GET /api/v1/document-catalog`) and MCP (`list_document_catalog`), with
+  safe field projections, status/collection/metadata filters, and conditional
+  refresh. Clients compare versions across pages and restart on a change.
+- Added a root-only `.mcp-knowledge-manifest.json` for directory scans. Ordered
+  safe glob rules attach metadata, and manifest changes replace affected
+  scanner-owned documents on restart. The scanner remains authoritative for
+  `sourcePath`; rules do not apply to extracted ZIP members.
 - Added opt-in `collapse: "document"` to MCP and REST search. It returns one
   representative best chunk per document, document ranks, candidate-based
   `matchingChunkCount`, and unique `matchedHeadings`; bounded candidate pools
