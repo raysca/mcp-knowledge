@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { compileFilters, parseFilters } from "../../packages/core/src/retrieval/filters.ts";
 import { createKnowledgeRepository, migrateLibsql } from "../../packages/db/src/index.ts";
 import { LibsqlVectorIndex } from "../../packages/retrieval/src/vector/libsql.ts";
+import { LibsqlLexicalIndex } from "../../packages/retrieval/src/lexical/libsql-fts.ts";
 import type { StoredChunk } from "../../packages/core/src/domain/types.ts";
 
 describe("filters", () => {
@@ -111,6 +112,55 @@ function unit(i: number, last = 0): number[] {
   v[i] = 1;
   v[383] = last;
   return v;
+}
+
+for (const mode of ["lexical", "vector"] as const) {
+  test(`${mode} null filters match explicit null in chunk or document metadata and preserve existence semantics`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-null-filter-"));
+    const url = `file:${join(dir, "app.db")}`;
+    try {
+      await migrateLibsql(url);
+      const repo = createKnowledgeRepository(url);
+      const vectors = new LibsqlVectorIndex(url);
+      const lexical = new LibsqlLexicalIndex(url);
+      const rows: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+        ["missing", {}, {}], ["doc_null", { review: { state: null } }, {}],
+        ["chunk_null", {}, { review: { state: null } }],
+        ["doc_yes", { review: { state: "yes" } }, {}], ["chunk_yes", {}, { review: { state: "yes" } }],
+        ["doc_null_chunk_no", { review: { state: null } }, { review: { state: "no" } }],
+        ["doc_no_chunk_null", { review: { state: "no" } }, { review: { state: null } }],
+        ["text_null", { review: { state: "null" } }, {}],
+        ["quoted", {}, { review: { state: "yes') OR 1=1 --" } }],
+        ["excluded_null", { allowed: "no", review: { state: null } }, {}],
+      ];
+      for (const [id, documentMetadata, chunkMetadata] of rows) {
+        await repo.createDocument({ documentId: id, revisionId: `rev_${id}`, originalFilename: `${id}.md`,
+          mimeType: "text/markdown", sizeBytes: 1, sha256: id, storageKey: id,
+          metadata: { allowed: "yes", ...documentMetadata } });
+        await repo.replaceChunks(`rev_${id}`, [{ id: `chunk_${id}`, documentId: id, revisionId: `rev_${id}`,
+          sequence: 0, content: "reviewable", embeddingText: "reviewable", headingPath: [], tokenCount: 1,
+          metadata: chunkMetadata, contentHash: id, createdAt: new Date() }]);
+        await vectors.insert([{ chunkId: `chunk_${id}`, vector: unit(0) }]);
+      }
+      const nullIds = ["chunk_null", "doc_no_chunk_null", "doc_null", "doc_null_chunk_no"];
+      const cases: Array<[unknown, string[]]> = [
+        [null, nullIds], [{ eq: null }, nullIds], [{ in: [null] }, nullIds],
+        [{ in: [null, "yes"] }, ["chunk_null", "chunk_yes", "doc_no_chunk_null", "doc_null", "doc_null_chunk_no", "doc_yes"]],
+        [{ in: ["yes", null, null] }, ["chunk_null", "chunk_yes", "doc_no_chunk_null", "doc_null", "doc_null_chunk_no", "doc_yes"]],
+        [{ in: [null, "yes') OR 1=1 --"] }, [...nullIds, "quoted"]],
+        [{ exists: false }, ["chunk_null", "doc_null", "missing"]],
+        [{ exists: true }, ["chunk_yes", "doc_no_chunk_null", "doc_null_chunk_no", "doc_yes", "quoted", "text_null"]],
+        [{ neq: null }, ["chunk_yes", "doc_no_chunk_null", "doc_null_chunk_no", "doc_yes", "quoted", "text_null"]],
+      ];
+      for (const [spec, ids] of cases) {
+        const filters = parseFilters({ allowed: "yes", "review.state": spec });
+        const hits = mode === "vector"
+          ? await vectors.search({ vector: unit(0), filters, limit: 20 })
+          : await lexical.search({ query: "reviewable", filters, limit: 20 });
+        expect(hits.map((hit) => hit.documentId).sort()).toEqual(ids);
+      }
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
 }
 
 function chunkOf(id: string, keep: boolean, seq: number): StoredChunk {

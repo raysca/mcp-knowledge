@@ -326,14 +326,22 @@ class LibSqlKnowledgeRepository implements KnowledgeRepository {
       }
       parseFilters({ [clause.field]: { [clause.op]: clause.value } });
       const value = sql`json_extract(${documents.metadata}, ${`$.${clause.field}`})`;
+      const isJsonNull = sql`json_type(${documents.metadata}, ${`$.${clause.field}`}) = 'null'`;
       const bind = (v: unknown) => typeof v === "boolean" ? Number(v) : v;
       switch (clause.op) {
-        case "eq": predicates.push(sql`${value} = ${bind(clause.value)}`); break;
+        case "eq": predicates.push(clause.value === null ? isJsonNull : sql`${value} = ${bind(clause.value)}`); break;
         case "neq": predicates.push(sql`${value} IS NOT ${bind(clause.value)}`); break;
         case "exists": predicates.push(clause.value === false ? sql`${value} IS NULL` : sql`${value} IS NOT NULL`); break;
         case "gte": predicates.push(sql`CAST(${value} AS REAL) >= ${clause.value}`); break;
         case "lte": predicates.push(sql`CAST(${value} AS REAL) <= ${clause.value}`); break;
-        case "in": predicates.push(sql`${value} IN (${sql.join((clause.value as unknown[]).map((v) => sql`${bind(v)}`), sql`, `)})`); break;
+        case "in": {
+          const values = clause.value as unknown[];
+          const nonNull = values.filter((v) => v !== null);
+          const membership = sql`${value} IN (${sql.join(nonNull.map((v) => sql`${bind(v)}`), sql`, `)})`;
+          predicates.push(nonNull.length === 0 ? isJsonNull
+            : values.includes(null) ? or(membership, isJsonNull)! : membership);
+          break;
+        }
       }
     }
     // Select only safe catalog columns, with the two extra values needed to form a seek cursor.

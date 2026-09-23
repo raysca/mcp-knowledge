@@ -91,6 +91,38 @@ test("catalog applies status, collection, metadata filters and unusual safe proj
   });
 });
 
+for (const transport of ["REST", "MCP"] as const) {
+  test(`${transport} catalog null filters select explicit null without matching missing metadata`, async () => {
+    await fixture(async (app, repo) => {
+      await seed(repo, "null", { reviewed: null });
+      await seed(repo, "missing");
+      await seed(repo, "yes", { reviewed: "yes" });
+      await seed(repo, "text_null", { reviewed: "null" });
+      const cases: Array<[unknown, string[]]> = [
+        [null, ["null"]], [{ eq: null }, ["null"]], [{ in: [null] }, ["null"]],
+        [{ in: [null, "yes"] }, ["null", "yes"]],
+        [{ exists: false }, ["missing", "null"]],
+        [{ neq: null }, ["text_null", "yes"]], [{ exists: true }, ["text_null", "yes"]],
+      ];
+      for (const [spec, ids] of cases) {
+        const filters = { reviewed: spec };
+        let page: Page;
+        if (transport === "REST") {
+          const response = await rest(app, { filters: JSON.stringify(filters), fields: "id" });
+          expect(response.status).toBe(200);
+          page = await response.json() as Page;
+        } else {
+          const result = await mcp(app, { filters, fields: ["id"] });
+          expect(result.isError).toBeUndefined();
+          page = JSON.parse(result.content[0]!.text) as Page;
+        }
+        expect(page.items.map((item) => item.id).sort()).toEqual(ids);
+        expect(page.nextCursor).toBeUndefined();
+      }
+    });
+  });
+}
+
 test("conditional catalog refresh returns only its version and unchanged through both transports", async () => {
   await fixture(async (app, repo) => {
     await seed(repo, "a");

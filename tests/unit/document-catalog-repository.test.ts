@@ -118,6 +118,36 @@ test("catalog applies collection and shared metadata filters before pagination",
   });
 });
 
+test("catalog null equality and membership distinguish explicit JSON null from missing paths", async () => {
+  await withRepository(async (repo) => {
+    for (const [id, metadata] of [
+      ["null", { review: { state: null } }], ["missing", { review: {} }],
+      ["yes", { review: { state: "yes" } }], ["text_null", { review: { state: "null" } }],
+      ["quoted", { review: { state: "yes') OR 1=1 --" } }],
+    ] as const) {
+      await create(repo, id, metadata);
+      await repo.setDocumentStatus(id, "ready");
+    }
+    const cases: Array<[unknown, string[]]> = [
+      [null, ["null"]], [{ eq: null }, ["null"]], [{ in: [null] }, ["null"]],
+      [{ in: [null, "yes"] }, ["null", "yes"]], [{ in: ["yes", null, null] }, ["null", "yes"]],
+      [{ in: [null, "yes') OR 1=1 --"] }, ["null", "quoted"]],
+      [{ neq: null }, ["quoted", "text_null", "yes"]],
+      [{ exists: false }, ["missing", "null"]], [{ exists: true }, ["quoted", "text_null", "yes"]],
+    ];
+    for (const [spec, ids] of cases) {
+      const page = await repo.listDocumentCatalog({ limit: 10, fields: ["id"],
+        filters: parseFilters({ "review.state": spec }),
+      });
+      expect(page.items.map((item) => item.id).sort()).toEqual(ids);
+    }
+    const combined = await repo.listDocumentCatalog({ limit: 10, fields: ["id"],
+      filters: parseFilters({ missingGate: "yes", "review.state": { in: [null, "yes"] } }),
+    });
+    expect(combined.items).toEqual([]);
+  });
+});
+
 test("catalog keyset pages duplicate timestamps and can seek after a deleted anchor", async () => {
   await withRepository(async (repo, client) => {
     for (const id of ["a", "b", "c", "d"]) { await create(repo, id); await repo.setDocumentStatus(id, "ready"); }
