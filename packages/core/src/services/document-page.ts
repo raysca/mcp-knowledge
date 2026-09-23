@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { DocumentBlock, NormalizedDocument } from "../domain/normalized.ts";
 import { AppError } from "../errors.ts";
 
@@ -10,6 +10,7 @@ export type DocumentPageInput = {
   blockLimit: number;
   maxChars: number;
   headings?: string[];
+  cursorKey: Uint8Array;
 };
 
 export type DocumentPageResult = {
@@ -29,6 +30,12 @@ export type BlockCursor = {
 
 function invalidCursor(): never {
   throw new AppError("INVALID_CURSOR", "The block cursor is invalid.");
+}
+
+function requireCursorKey(key: Uint8Array): void {
+  if (!(key instanceof Uint8Array) || key.byteLength < 32) {
+    throw new AppError("INVALID_ARGUMENT", "The block cursor key must contain at least 32 bytes.");
+  }
 }
 
 function normalizedHeading(value: string): string {
@@ -61,16 +68,22 @@ function selectedBlocks(blocks: DocumentBlock[], headings: string[]): DocumentBl
   return blocks.filter((_, index) => selected.has(index));
 }
 
-export function encodeBlockCursor(cursor: BlockCursor): string {
+export function encodeBlockCursor(cursor: BlockCursor, key: Uint8Array): string {
+  requireCursorKey(key);
   const payload = Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-  const digest = createHash("sha256").update(payload).digest("base64url");
+  const digest = createHmac("sha256", key).update(payload).digest("base64url");
   return `${payload}.${digest}`;
 }
 
-export function decodeBlockCursor(value: string): BlockCursor {
+export function decodeBlockCursor(value: string, key: Uint8Array): BlockCursor {
+  requireCursorKey(key);
   if (typeof value !== "string" || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) invalidCursor();
   const [payload, digest] = value.split(".");
-  if (createHash("sha256").update(payload!).digest("base64url") !== digest) invalidCursor();
+  const suppliedMac = Buffer.from(digest!, "base64url");
+  const expectedMac = createHmac("sha256", key).update(payload!).digest();
+  if (suppliedMac.byteLength !== expectedMac.byteLength ||
+      suppliedMac.toString("base64url") !== digest ||
+      !timingSafeEqual(suppliedMac, expectedMac)) invalidCursor();
   try {
     const bytes = Buffer.from(payload!, "base64url");
     if (bytes.toString("base64url") !== payload) invalidCursor();
@@ -91,13 +104,14 @@ export function decodeBlockCursor(value: string): BlockCursor {
 }
 
 export function pageNormalizedDocument(input: DocumentPageInput): DocumentPageResult {
+  requireCursorKey(input.cursorKey);
   if (!Number.isSafeInteger(input.blockLimit) || input.blockLimit < 1 ||
       !Number.isSafeInteger(input.maxChars) || input.maxChars < 1) {
     throw new AppError("INVALID_ARGUMENT", "Block limit and character ceiling must be positive integers.");
   }
   const headings = headingSelection(input.headings);
   const blocks = selectedBlocks(input.normalized.blocks, headings);
-  const cursor = input.cursor === undefined ? undefined : decodeBlockCursor(input.cursor);
+  const cursor = input.cursor === undefined ? undefined : decodeBlockCursor(input.cursor, input.cursorKey);
   if (cursor && (cursor.documentId !== input.documentId || cursor.revisionId !== input.revisionId ||
       JSON.stringify(cursor.headings) !== JSON.stringify(headings))) {
     throw new AppError("CURSOR_STALE", "The block cursor does not match this document revision or heading selection.");
@@ -132,7 +146,7 @@ export function pageNormalizedDocument(input: DocumentPageInput): DocumentPageRe
       revisionId: input.revisionId,
       index: nextIndex,
       headings,
-    }) } : {}),
+    }, input.cursorKey) } : {}),
     returnedBlocks: pageBlocks.length,
     totalBlocks: blocks.length,
   };

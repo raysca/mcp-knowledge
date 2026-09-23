@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import type { NormalizedDocument } from "../../packages/core/src/domain/normalized.ts";
 import {
   decodeBlockCursor,
@@ -19,7 +20,8 @@ const normalized: NormalizedDocument = {
   ],
 };
 
-const base = { documentId: "doc_a", revisionId: "rev_a", normalized, blockLimit: 50, maxChars: 2000 };
+const cursorKey = Buffer.alloc(32, 0x5a);
+const base = { documentId: "doc_a", revisionId: "rev_a", normalized, blockLimit: 50, maxChars: 2000, cursorKey };
 
 describe("pageNormalizedDocument", () => {
   test("returns a complete small document and valid JSON", () => {
@@ -103,9 +105,23 @@ describe("pageNormalizedDocument", () => {
     expect(() => pageNormalizedDocument({ ...base, cursor: cursor.slice(0, -1) + replacement })).toThrow(expect.objectContaining({ code: "INVALID_CURSOR" }));
   });
 
+  test("rejects rewritten bindings and index even with a recomputed public SHA-256", () => {
+    const issued = pageNormalizedDocument({ ...base, blockLimit: 1 }).nextBlockCursor!;
+    const payload = JSON.parse(Buffer.from(issued.split(".")[0]!, "base64url").toString("utf8"));
+    const rewritten = Buffer.from(JSON.stringify({
+      ...payload,
+      documentId: "doc_b",
+      revisionId: "rev_b",
+      index: 2,
+    })).toString("base64url");
+    const oldPublicDigest = createHash("sha256").update(rewritten).digest("base64url");
+    expect(() => pageNormalizedDocument({ ...base, documentId: "doc_b", revisionId: "rev_b", cursor: `${rewritten}.${oldPublicDigest}` }))
+      .toThrow(expect.objectContaining({ code: "INVALID_CURSOR" }));
+  });
+
   test.each([
-    { documentId: "doc_b", revisionId: "rev_a", headings: undefined },
-    { documentId: "doc_a", revisionId: "rev_b", headings: undefined },
+    { documentId: "doc_b", revisionId: "rev_a", headings: ["Tools"] },
+    { documentId: "doc_a", revisionId: "rev_b", headings: ["Tools"] },
     { documentId: "doc_a", revisionId: "rev_a", headings: ["Paint"] },
   ])("rejects a cursor with changed document, revision, or heading selection", (change) => {
     const cursor = pageNormalizedDocument({ ...base, blockLimit: 1, headings: ["Tools"] }).nextBlockCursor!;
@@ -113,9 +129,11 @@ describe("pageNormalizedDocument", () => {
   });
 
   test("round trips an opaque cursor without a storage key", () => {
-    const cursor = encodeBlockCursor({ documentId: "doc_a", revisionId: "rev_a", index: 4, headings: ["tools"] });
+    const cursor = encodeBlockCursor({ documentId: "doc_a", revisionId: "rev_a", index: 4, headings: ["tools"] }, cursorKey);
     expect(cursor).not.toContain("documents/");
-    expect(decodeBlockCursor(cursor)).toEqual({ documentId: "doc_a", revisionId: "rev_a", index: 4, headings: ["tools"] });
+    expect(decodeBlockCursor(cursor, cursorKey)).toEqual({ documentId: "doc_a", revisionId: "rev_a", index: 4, headings: ["tools"] });
+    expect(() => decodeBlockCursor(cursor, Buffer.alloc(32, 0x11)))
+      .toThrow(expect.objectContaining({ code: "INVALID_CURSOR" }));
   });
 
   test.each([
