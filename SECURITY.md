@@ -56,7 +56,7 @@ your own reverse proxy, TLS, and network controls in front of it.
 
 ## Reporting a vulnerability
 
-Report vulnerabilities through GitHub's [private vulnerability reporting](https://github.com/Capgemini-AIE/mcp-knowledge/security/advisories/new).
+Report vulnerabilities through GitHub's [private vulnerability reporting](https://github.com/raysca/mcp-knowledge/security/advisories/new).
 Do not open a public issue for sensitive reports. Follow the same rule as
 [troubleshooting.md](docs/troubleshooting.md): never
 include document contents, file paths, API keys, session cookies, passphrases,
