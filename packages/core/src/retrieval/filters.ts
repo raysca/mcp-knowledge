@@ -4,7 +4,7 @@ import type { FilterClause } from "../ports.ts";
 export type { FilterClause };
 export type FilterOp = FilterClause["op"];
 
-const FIELD = /^[A-Za-z0-9_.]+$/;
+const FIELD = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 const OPS: FilterOp[] = ["eq", "neq", "in", "exists", "gte", "lte"];
 
 type Scalar = string | number | boolean | null;

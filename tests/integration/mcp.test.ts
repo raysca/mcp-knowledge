@@ -149,6 +149,18 @@ describe("MCP", () => {
     ).toStartWith("INVALID_FILTER: filters must be an object");
   });
 
+  test("search_documents rejects empty metadata path segments before SQL", async () => {
+    const response = await rpc("tools/call", {
+      name: "search_documents",
+      arguments: { query: "widgets", mode: "lexical", filters: { ".": "x" } },
+    });
+    const result = (response.body as {
+      result: { content: Array<{ text: string }>; isError?: boolean };
+    }).result;
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toStartWith("INVALID_FILTER: Invalid filter field: .");
+  });
+
   test("omitted and cap-sized limits honor reduced runtime maxima", async () => {
     for (const limit of [undefined, "3"]) {
       const response = await rpc("tools/call", {

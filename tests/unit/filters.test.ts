@@ -29,6 +29,21 @@ describe("filters", () => {
     expect(() => parseFilters({ "dept) OR 1=1": "x" })).toThrow(/Invalid filter field/);
   });
 
+  test("rejects empty dotted path segments and retains valid nested fields", () => {
+    for (const field of [".", ".department", "department.", "department..category"]) {
+      let error: unknown;
+      try {
+        parseFilters({ [field]: "garden" });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({ code: "INVALID_FILTER", status: 400 });
+    }
+    expect(parseFilters({ "department.category": "garden" })).toEqual([
+      { field: "department.category", op: "eq", value: "garden" },
+    ]);
+  });
+
   test("rejects non-scalar filter values instead of crashing the driver", () => {
     // Regression: filter values are bound straight to the SQLite driver (where.ts), which
     // only accepts numbers/strings/bigints/buffers/null. An array or object slipping through
