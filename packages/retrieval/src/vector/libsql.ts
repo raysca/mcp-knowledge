@@ -17,7 +17,11 @@ export class LibsqlVectorIndex implements VectorIndex {
     if (chunks.length === 0) return;
     await this.client.batch(
       chunks.map((c) => ({
-        sql: "UPDATE document_chunks SET embedding = vector32(?) WHERE id = ?",
+        // A worker started before source replacement may resume after retirement.
+        // Check parent liveness in the write itself so it cannot restore old vectors.
+        sql: `UPDATE document_chunks SET embedding = vector32(?) WHERE id = ?
+          AND EXISTS (SELECT 1 FROM documents
+            WHERE documents.id = document_chunks.document_id AND documents.deleted_at IS NULL)`,
         args: [vectorLiteral(c.vector), c.chunkId],
       })),
     );

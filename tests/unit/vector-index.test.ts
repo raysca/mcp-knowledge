@@ -112,4 +112,30 @@ describe("LibsqlVectorIndex", () => {
     expect(details.some((d) => d.includes("VIRTUAL TABLE"))).toBe(true);
     expect(details.some((d) => d.includes("SCAN document_chunks"))).toBe(false);
   });
+
+  test("a mixed batch cannot repopulate deleted parents but still inserts and updates live embeddings", async () => {
+    const repo = createKnowledgeRepository(url);
+    const index = new LibsqlVectorIndex(url);
+    const client = createClient({ url });
+    try {
+      for (const id of ["retired", "live"]) {
+        await repo.createDocument({ documentId: id, revisionId: `rev_${id}`, originalFilename: `${id}.md`,
+          mimeType: "text/markdown", sizeBytes: 1, sha256: id, metadata: {}, storageKey: id });
+        await repo.replaceChunks(`rev_${id}`, [chunk({ id: `chk_${id}`, documentId: id, revisionId: `rev_${id}`,
+          sequence: 0, content: id })]);
+      }
+      await index.insert([{ chunkId: "chk_retired", vector: unit(0) }]);
+      await repo.softDeleteDocument("retired");
+      await index.deleteRevision("rev_retired");
+      await index.insert([{ chunkId: "chk_retired", vector: unit(0) }, { chunkId: "chk_live", vector: unit(1) }]);
+      const rows = await client.execute("SELECT id, CASE WHEN embedding IS NOT NULL THEN vector_extract(embedding) END AS vector FROM document_chunks WHERE id IN ('chk_retired', 'chk_live') ORDER BY id");
+      expect(rows.rows.map((row) => ({ id: row.id, vector: row.vector }))).toEqual([
+        { id: "chk_live", vector: JSON.stringify(unit(1)) }, { id: "chk_retired", vector: null },
+      ]);
+      await index.insert([{ chunkId: "chk_live", vector: unit(0) }]);
+      const live = await index.search({ vector: unit(0), documentIds: ["live"], limit: 1 });
+      expect(live[0]?.chunkId).toBe("chk_live");
+      expect(live[0]?.score).toBeCloseTo(1);
+    } finally { client.close(); }
+  });
 });

@@ -958,6 +958,12 @@ SET status = 'deleted', deleted_at = ?, updated_at = ?
 WHERE id = ?`,
           args: [now, now, input.replaceDocumentId],
         });
+        // Keep historical chunks, but remove their vectors before the replacement
+        // commits so retired documents cannot consume ANN candidate slots.
+        await this.client.execute({
+          sql: "UPDATE document_chunks SET embedding = NULL WHERE document_id = ?",
+          args: [input.replaceDocumentId],
+        });
         if (replacementRelativePath !== input.relativePath) {
           await this.client.execute({
             sql: `DELETE FROM source_files
