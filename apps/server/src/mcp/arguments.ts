@@ -9,6 +9,7 @@ type IntegerOptions = {
 
 export function boundedInteger(value: unknown, options: IntegerOptions): number {
   if (value === undefined || value === null || value === "") return options.defaultValue;
+  if (typeof value === "number" && !Number.isFinite(value)) return options.defaultValue;
 
   const parsed = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
   if (
