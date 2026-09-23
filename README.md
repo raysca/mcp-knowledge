@@ -245,11 +245,19 @@ MCP `search_documents` and REST `POST /api/v1/search` accept
 
 Omitting `collapse` (or setting it to `"none"`) retains chunk results.
 Document mode groups the normal bounded candidate pools after chunk-level
-ranking. Each document keeps its best chunk, with document ID breaking ties;
-`ranking.finalRank` becomes the document rank, while vector/lexical ranks and
-the fusion score describe the selected chunk; `ranking.chunkRank` preserves
-its pre-collapse position. `matchingChunkCount` counts
-that document's fused candidates and `matchedHeadings` lists their unique
+ranking. Each document keeps its best chunk, with document ID breaking ties.
+REST hits expose the document rank as `ranking.finalRank` and preserve the
+best chunk's pre-collapse position as `ranking.chunkRank`. When available,
+vector/lexical ranks and scores and the fusion score remain in REST's
+`ranking` object and describe the selected chunk.
+
+MCP `search_documents` hits expose the document rank as the flat `rank` field
+and the best chunk's pre-collapse position as the flat `chunkRank` field.
+MCP does not expose the nested `ranking` object or its vector/lexical ranks,
+scores, or fusion score.
+
+Both APIs include `matchingChunkCount`, which counts that document's fused
+candidates, and `matchedHeadings`, which lists their unique
 headings. These summaries describe retrieved candidates, not all matches in
 the corpus. A document-dominated candidate pool may return fewer than `limit`
 distinct documents; there are no unbounded follow-up searches.
