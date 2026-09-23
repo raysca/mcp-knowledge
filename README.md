@@ -313,12 +313,21 @@ including through redirects.
 Set `DASHBOARD_PASSPHRASE` before publishing the service on a LAN, through a
 reverse proxy, or through a tunnel:
 
+Generate a separate cursor secret with `openssl rand -base64 32`. Set
+`DOCUMENT_CURSOR_SECRET` to that value so document-page cursors remain valid
+after a restart. `APP_PROFILE=server` requires both values at startup; the
+cursor secret must decode to exactly 32 bytes and must not be the dashboard
+passphrase. Preserve the generated value for replacement containers. Local
+mode can omit it, in which case cursors expire on restart.
+
 ```bash
+export DOCUMENT_CURSOR_SECRET="$(openssl rand -base64 32)"
 docker run -d \
   --name mcp-knowledge \
   --restart unless-stopped \
   -p 3000:3000 \
   -e DASHBOARD_PASSPHRASE='replace-with-a-long-random-passphrase' \
+  -e DOCUMENT_CURSOR_SECRET \
   -v mcp-knowledge-data:/app/data \
   ghcr.io/raysca/mcp-knowledge:0.1
 ```

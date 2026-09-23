@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -133,15 +134,15 @@ describe("documents API", () => {
       const response = await fetch(`${base}/api/v1/documents/${id}/normalized?${query}`);
       expect(response.status).toBe(200);
       const page = (await response.json()) as {
-        body: string; truncated: boolean; nextBlockCursor?: string;
+        metadata: Record<string, unknown>; blocks: unknown[];
+        truncated: boolean; nextBlockCursor?: string;
         returnedBlocks: number; totalBlocks: number;
       };
-      expect(page.body.length).toBeLessThanOrEqual(145);
-      const parsed = JSON.parse(page.body) as { metadata: Record<string, unknown>; blocks: unknown[] };
-      expect(parsed.metadata).toEqual({});
-      expect(page.returnedBlocks).toBe(parsed.blocks.length);
+      expect(JSON.stringify({ metadata: page.metadata, blocks: page.blocks }).length).toBeLessThanOrEqual(145);
+      expect(page.metadata).toEqual({});
+      expect(page.returnedBlocks).toBe(page.blocks.length);
       expect(page.totalBlocks).toBe(6);
-      blocks.push(...parsed.blocks);
+      blocks.push(...page.blocks);
       cursor = page.nextBlockCursor;
       expect(page.truncated).toBe(Boolean(cursor));
       pages += 1;
@@ -171,26 +172,49 @@ describe("documents API", () => {
     const id = await readyDocument("headings.md", "# Tools\nHammer\n# Other\nExclude\n# Tools\nWrench");
     const response = await fetch(`${base}/api/v1/documents/${id}/normalized?heading=Tools&heading=Other&blockLimit=1`);
     expect(response.status).toBe(200);
-    const page = (await response.json()) as { body: string; returnedBlocks: number; totalBlocks: number };
+    const page = (await response.json()) as { blocks: unknown[]; returnedBlocks: number; totalBlocks: number };
     expect(page.returnedBlocks).toBe(1);
     expect(page.totalBlocks).toBe(6);
     const tools = await fetch(`${base}/api/v1/documents/${id}/normalized?heading=Tools&heading=Missing&blockLimit=100000`);
     expect(tools.status).toBe(200);
-    const filtered = (await tools.json()) as { body: string; totalBlocks: number };
+    const filtered = (await tools.json()) as { blocks: Array<{ text: string }>; totalBlocks: number; nextBlockCursor?: string };
     expect(filtered.totalBlocks).toBe(4);
-    const texts = (JSON.parse(filtered.body) as { blocks: Array<{ text: string }> }).blocks.map((block) => block.text);
-    let cursor = (filtered as { nextBlockCursor?: string }).nextBlockCursor;
+    const texts = filtered.blocks.map((block) => block.text);
+    let cursor = filtered.nextBlockCursor;
     let pages = 0;
     while (cursor) {
       const next = await fetch(`${base}/api/v1/documents/${id}/normalized?heading=Tools&heading=Missing&blockLimit=100000&blockCursor=${encodeURIComponent(cursor)}`);
       expect(next.status).toBe(200);
-      const page = (await next.json()) as { body: string; nextBlockCursor?: string };
-      texts.push(...(JSON.parse(page.body) as { blocks: Array<{ text: string }> }).blocks.map((block) => block.text));
+      const page = (await next.json()) as { blocks: Array<{ text: string }>; nextBlockCursor?: string };
+      texts.push(...page.blocks.map((block) => block.text));
       cursor = page.nextBlockCursor;
       pages += 1;
       expect(pages).toBeLessThan(10);
     }
     expect(texts).toEqual(["Tools", "Hammer", "Tools", "Wrench"]);
+  }, 40_000);
+
+  test("a small normalized REST response keeps its original top-level fields", async () => {
+    const id = await readyDocument("small-compatible.md", "# Guide\nHelpful text");
+    const response = await fetch(`${base}/api/v1/documents/${id}/normalized`);
+    expect(response.status).toBe(200);
+    const page = (await response.json()) as {
+      metadata: Record<string, unknown>;
+      blocks: Array<{ type: string; text: string; level?: number }>;
+      body?: string;
+      truncated: boolean;
+      returnedBlocks: number;
+      totalBlocks: number;
+    };
+    expect(page.metadata).toEqual({});
+    expect(page.blocks).toEqual([
+      { type: "heading", level: 1, text: "Guide" },
+      { type: "paragraph", text: "Helpful text" },
+    ]);
+    expect(page.body).toBeUndefined();
+    expect(page.truncated).toBe(false);
+    expect(page.returnedBlocks).toBe(2);
+    expect(page.totalBlocks).toBe(2);
   }, 40_000);
 
   test("normalized route caps a caller's block limit at the configured maximum", async () => {
@@ -214,13 +238,15 @@ describe("documents API", () => {
     }
   }, 40_000);
 
-  test("a configured passphrase keeps cursors usable after app recreation and the route requires read auth", async () => {
+  test("independent cursor secret survives app recreation and password guesses cannot verify it", async () => {
     const id = await readyDocument("persistent-cursor.md", "# One\nPersisted\n# Two\nSecond");
+    const secret = Buffer.alloc(32, 0x45).toString("base64");
     const settings = {
       ROLE: "api",
       DATABASE_URL: `file:${join(dir, "app.db")}`,
       STORAGE_PATH: join(dir, "blobs"),
       DASHBOARD_PASSPHRASE: "correct-horse-battery-staple",
+      DOCUMENT_CURSOR_SECRET: secret,
       MAX_MCP_DOCUMENT_CHARS: "145",
     };
     const first = await createApp(loadEnv(settings));
@@ -229,6 +255,13 @@ describe("documents API", () => {
       const page = await first.services.documents.normalizedPage(id, { blockLimit: 1, maxChars: 145 });
       cursor = page.nextBlockCursor;
       expect(cursor).toBeTruthy();
+      const [payload, mac] = cursor!.split(".");
+      for (const candidate of ["password", settings.DASHBOARD_PASSPHRASE, "another-secret"]) {
+        expect(createHmac("sha256", candidate).update(payload!).digest("base64url")).not.toBe(mac);
+        const guessedKey = createHmac("sha256", candidate)
+          .update("mcp-knowledge:document-block-cursor:v1").digest();
+        expect(createHmac("sha256", guessedKey).update(payload!).digest("base64url")).not.toBe(mac);
+      }
     } finally {
       first.stop();
     }
@@ -241,12 +274,19 @@ describe("documents API", () => {
     } finally {
       second.stop();
     }
-    const changed = await createApp(loadEnv({ ...settings, DASHBOARD_PASSPHRASE: "another-secret" }));
+    const changedPassword = await createApp(loadEnv({ ...settings, DASHBOARD_PASSPHRASE: "another-secret" }));
     try {
-      await expect(changed.services.documents.normalizedPage(id, { cursor, maxChars: 145 }))
+      const page = await changedPassword.services.documents.normalizedPage(id, { cursor, maxChars: 145 });
+      expect((JSON.parse(page.body) as { blocks: Array<{ text: string }> }).blocks[0]?.text).toBe("Persisted");
+    } finally {
+      changedPassword.stop();
+    }
+    const changedSecret = await createApp(loadEnv({ ...settings, DOCUMENT_CURSOR_SECRET: Buffer.alloc(32, 0x46).toString("base64") }));
+    try {
+      await expect(changedSecret.services.documents.normalizedPage(id, { cursor, maxChars: 145 }))
         .rejects.toMatchObject({ code: "INVALID_CURSOR" });
     } finally {
-      changed.stop();
+      changedSecret.stop();
     }
   }, 40_000);
 });

@@ -24,9 +24,9 @@ import { startWorkerLoop } from "./workers/loop.ts";
 
 const processCursorKey = randomBytes(32);
 
-function documentCursorKey(passphrase?: string): Uint8Array {
-  return passphrase
-    ? createHmac("sha256", passphrase).update("mcp-knowledge:document-block-cursor:v1").digest()
+function documentCursorKey(secret?: Uint8Array): Uint8Array {
+  return secret
+    ? createHmac("sha256", secret).update("mcp-knowledge:document-block-cursor:v1").digest()
     : processCursorKey;
 }
 
@@ -69,7 +69,7 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
     repo,
     blobs,
     env.MAX_UPLOAD_BYTES,
-    documentCursorKey(env.DASHBOARD_PASSPHRASE),
+    documentCursorKey(env.DOCUMENT_CURSOR_SECRET),
   );
   const archives = new ArchiveImportService(repo, blobs, documents, {
     MAX_UPLOAD_BYTES: env.MAX_UPLOAD_BYTES,

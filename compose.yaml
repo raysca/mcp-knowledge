@@ -5,6 +5,7 @@ services:
     ports: ["127.0.0.1:3000:3000"]
     environment:
       DASHBOARD_PASSPHRASE: "${DASHBOARD_PASSPHRASE:-}"
+      DOCUMENT_CURSOR_SECRET: "${DOCUMENT_CURSOR_SECRET:-}"
     volumes: ["mcp-knowledge-data:/app/data"]
     restart: unless-stopped
 volumes:
