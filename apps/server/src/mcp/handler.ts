@@ -53,10 +53,15 @@ const tools = (env: McpServices["env"]) => [
   },
   {
     name: "get_document",
-    description: "Get a document. Body is truncated at MAX_MCP_DOCUMENT_CHARS.",
+    description: "Get a document page with a complete JSON body. Follow nextBlockCursor for more blocks.",
     inputSchema: {
       type: "object",
-      properties: { document_id: { type: "string" } },
+      properties: {
+        document_id: { type: "string" },
+        block_cursor: { type: "string" },
+        block_limit: { type: "integer", minimum: 1, maximum: env.MAX_LIST_LIMIT },
+        headings: { type: "array", items: { type: "string" } },
+      },
       required: ["document_id"],
     },
   },
@@ -194,19 +199,29 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
   }
   if (name === "get_document") {
     const doc = await svc.documents.get(String(args.document_id));
-    let body = "";
-    try {
-      const normalized = await svc.documents.normalized(doc.id);
-      body = JSON.stringify(normalized);
-    } catch {
-      body = "";
+    const blockLimit = boundedInteger(args.block_limit, {
+      name: "block_limit",
+      defaultValue: Math.min(50, svc.env.MAX_LIST_LIMIT),
+      min: 1,
+      max: svc.env.MAX_LIST_LIMIT,
+    });
+    if (args.block_cursor !== undefined &&
+        (typeof args.block_cursor !== "string" || args.block_cursor.length === 0)) {
+      throw new AppError("INVALID_TOOL_ARGUMENTS", "block_cursor must be a non-empty string.", 400);
     }
-    const cap = svc.env.MAX_MCP_DOCUMENT_CHARS;
-    const truncated = body.length > cap;
+    if (args.headings !== undefined &&
+        (!Array.isArray(args.headings) || args.headings.some((heading) => typeof heading !== "string"))) {
+      throw new AppError("INVALID_TOOL_ARGUMENTS", "headings must be an array of strings.", 400);
+    }
+    const page = await svc.documents.normalizedPage(doc.id, {
+      cursor: args.block_cursor as string | undefined,
+      blockLimit,
+      maxChars: svc.env.MAX_MCP_DOCUMENT_CHARS,
+      headings: args.headings as string[] | undefined,
+    });
     return {
       ...doc,
-      body: truncated ? body.slice(0, cap) : body,
-      truncated,
+      ...page,
     };
   }
   if (name === "get_chunk") {

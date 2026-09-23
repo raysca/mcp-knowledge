@@ -163,6 +163,34 @@ The MCP surface is intentionally read-only:
 
 Use the dashboard or REST API to upload and manage documents.
 
+`get_document` returns the existing document metadata plus a `body` string
+containing a complete JSON normalized document. The body is capped by
+`MAX_MCP_DOCUMENT_CHARS` (default `32000`) and contains whole blocks only. A
+small document fits in one response. For a larger document, pass the returned
+`nextBlockCursor` as `block_cursor` until no cursor remains:
+
+```json
+{
+  "name": "get_document",
+  "arguments": {
+    "document_id": "doc_...",
+    "block_cursor": "cursor-from-previous-response",
+    "block_limit": 50,
+    "headings": ["Core Product"]
+  }
+}
+```
+
+`block_cursor`, `block_limit`, and `headings` are optional. `block_limit` is
+bounded by `MAX_LIST_LIMIT`; `headings` selects complete sections by heading
+name before paging. Repeat the same `headings` on each continuation request.
+Each response includes `truncated`, `returnedBlocks`, and
+`totalBlocks`. Parse `body` on each page and append its `blocks` in order. A
+block or document envelope that cannot fit within the character ceiling
+returns `DOCUMENT_BLOCK_TOO_LARGE`. A cursor for another document, revision,
+or heading selection returns `CURSOR_STALE`; a malformed or changed cursor
+returns `INVALID_CURSOR`.
+
 ### Search context controls
 
 `search_documents` accepts collection and document ID filters, structured
@@ -311,14 +339,12 @@ including through redirects.
 ## Exposing beyond loopback
 
 Set `DASHBOARD_PASSPHRASE` before publishing the service on a LAN, through a
-reverse proxy, or through a tunnel:
-
-Generate a separate cursor secret with `openssl rand -base64 32`. Set
-`DOCUMENT_CURSOR_SECRET` to that value so document-page cursors remain valid
-after a restart. `APP_PROFILE=server` requires both values at startup; the
-cursor secret must decode to exactly 32 bytes and must not be the dashboard
-passphrase. Preserve the generated value for replacement containers. Local
-mode can omit it, in which case cursors expire on restart.
+reverse proxy, or through a tunnel. Generate an independent cursor secret with
+`openssl rand -base64 32` and set `DOCUMENT_CURSOR_SECRET` to that value.
+`APP_PROFILE=server` requires both values at startup. The cursor secret must
+decode to exactly 32 bytes; keep the same secret for replacement containers
+so document-page cursors remain valid. Local mode can omit it, in which case
+cursors expire on restart.
 
 ```bash
 export DOCUMENT_CURSOR_SECRET="$(openssl rand -base64 32)"

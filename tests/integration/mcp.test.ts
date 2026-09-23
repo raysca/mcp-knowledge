@@ -11,6 +11,8 @@ describe("MCP", () => {
   let base = "";
   let stop: () => void;
   let contextChunks: Array<{ id: string; content: string }> = [];
+  let documentIds: string[] = [];
+  const documentCeiling = 900;
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-mcp-"));
@@ -19,12 +21,12 @@ describe("MCP", () => {
       STORAGE_PATH: join(dir, "blobs"),
       MAX_SEARCH_LIMIT_MCP: "3",
       MAX_LIST_LIMIT: "4",
+      MAX_MCP_DOCUMENT_CHARS: String(documentCeiling),
     });
     const app = await createApp(env);
     stop = app.stop;
     server = Bun.serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
     base = `http://127.0.0.1:${server.port}`;
-    const documentIds: string[] = [];
     for (const [filename, content] of [
       [
         "first.md",
@@ -71,6 +73,102 @@ describe("MCP", () => {
     return { status: res.status, body: await res.json() };
   }
 
+  async function getDocument(documentId: string, args: Record<string, unknown> = {}) {
+    const response = await rpc("tools/call", {
+      name: "get_document",
+      arguments: { document_id: documentId, ...args },
+    });
+    const result = (response.body as {
+      result: { content: Array<{ text: string }>; isError?: boolean };
+    }).result;
+    return result.isError
+      ? { error: result.content[0]!.text }
+      : { page: JSON.parse(result.content[0]!.text) as {
+          id: string; originalFilename: string; body: string; truncated: boolean; nextBlockCursor?: string;
+          returnedBlocks: number; totalBlocks: number;
+        } };
+  }
+
+  test("get_document keeps a small document in a complete JSON body", async () => {
+    const result = await getDocument(documentIds[1]!);
+    expect(result.error).toBeUndefined();
+    const page = result.page!;
+    expect(page.id).toBe(documentIds[1]);
+    expect(page.originalFilename).toBe("second.md");
+    expect(page.truncated).toBe(false);
+    expect(page.nextBlockCursor).toBeUndefined();
+    expect(JSON.parse(page.body).blocks).toEqual([
+      { type: "heading", level: 1, text: "Second" },
+      { type: "paragraph", text: "Searchable paragraph about gadgets." },
+    ]);
+  });
+
+  test("get_document pages at block boundaries within the exact character ceiling", async () => {
+    const blocks: Array<{ text: string }> = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const result = await getDocument(documentIds[0]!, cursor ? { block_cursor: cursor } : {});
+      expect(result.error).toBeUndefined();
+      const page = result.page!;
+      expect(page.body.length).toBeLessThanOrEqual(documentCeiling);
+      const parsed = JSON.parse(page.body) as { blocks: Array<{ text: string }> };
+      expect(page.returnedBlocks).toBe(parsed.blocks.length);
+      expect(page.totalBlocks).toBe(6);
+      expect(page.truncated).toBe(Boolean(page.nextBlockCursor));
+      blocks.push(...parsed.blocks);
+      cursor = page.nextBlockCursor;
+      pages++;
+      expect(pages).toBeLessThan(10);
+    } while (cursor);
+    expect(pages).toBeGreaterThan(1);
+    expect(blocks.map((block) => block.text)).toEqual([
+      "Opening", `${"opening ".repeat(85).trim()}`,
+      "Widgets", `${"widgets ".repeat(85).trim()}`,
+      "Closing", `${"closing ".repeat(85).trim()}`,
+    ]);
+  });
+
+  test("get_document selects heading sections before applying block_limit", async () => {
+    const first = await getDocument(documentIds[0]!, {
+      block_limit: 1, headings: [" widgets "],
+    });
+    expect(first.error).toBeUndefined();
+    expect(first.page!.returnedBlocks).toBe(1);
+    expect(first.page!.totalBlocks).toBe(2);
+    expect((JSON.parse(first.page!.body) as { blocks: Array<{ text: string }> }).blocks[0]!.text)
+      .toBe("Widgets");
+    const second = await getDocument(documentIds[0]!, {
+      block_cursor: first.page!.nextBlockCursor, headings: ["WIDGETS"],
+    });
+    expect(second.error).toBeUndefined();
+    expect((JSON.parse(second.page!.body) as { blocks: Array<{ text: string }> }).blocks[0]!.text)
+      .toContain("widgets");
+    expect(second.page!.nextBlockCursor).toBeUndefined();
+  });
+
+  test("get_document reports stale and tampered cursors with public codes", async () => {
+    const first = (await getDocument(documentIds[0]!, { block_limit: 1 })).page!;
+    const cursor = first.nextBlockCursor!;
+    expect((await getDocument(documentIds[1]!, { block_cursor: cursor })).error)
+      .toStartWith("CURSOR_STALE: ");
+    expect((await getDocument(documentIds[0]!, { block_cursor: cursor, headings: ["Widgets"] })).error)
+      .toStartWith("CURSOR_STALE: ");
+    const changed = cursor.slice(0, -1) + (cursor.endsWith("A") ? "B" : "A");
+    expect((await getDocument(documentIds[0]!, { block_cursor: changed })).error)
+      .toStartWith("INVALID_CURSOR: ");
+  });
+
+  test("get_document validates bounded paging arguments", async () => {
+    for (const args of [
+      { block_limit: 0 }, { block_limit: 5 }, { block_limit: "oops" },
+      { block_cursor: 42 }, { headings: "Widgets" }, { headings: [42] },
+    ]) {
+      expect((await getDocument(documentIds[0]!, args)).error)
+        .toStartWith("INVALID_TOOL_ARGUMENTS: ");
+    }
+  });
+
   test("initialize and tools/list", async () => {
     const init = await rpc("initialize", { protocolVersion: "2024-11-05" });
     expect(init.status).toBe(200);
@@ -90,6 +188,7 @@ describe("MCP", () => {
     }).result.tools;
     const search = tools.find((tool) => tool.name === "search_documents")!;
     const chunk = tools.find((tool) => tool.name === "get_chunk")!;
+    const document = tools.find((tool) => tool.name === "get_document")!;
     const list = tools.find((tool) => tool.name === "list_documents")!;
     expect(search.inputSchema.properties.limit).toMatchObject({ maximum: 3 });
     expect(list.inputSchema.properties.limit).toMatchObject({ maximum: 4 });
@@ -107,6 +206,13 @@ describe("MCP", () => {
     });
     expect(chunk.inputSchema.properties.after).toMatchObject({
       type: "integer", minimum: 0, maximum: 5,
+    });
+    expect(document.inputSchema.properties.block_limit).toMatchObject({
+      type: "integer", minimum: 1, maximum: 4,
+    });
+    expect(document.inputSchema.properties.block_cursor).toMatchObject({ type: "string" });
+    expect(document.inputSchema.properties.headings).toMatchObject({
+      type: "array", items: { type: "string" },
     });
   });
 

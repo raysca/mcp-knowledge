@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `get_document` now returns block-safe, parseable JSON pages with opaque
+  continuation cursors, bounded block limits, optional heading selection, and
+  stable cursor and oversized-block error codes. Small document bodies retain
+  their existing string format. Server deployments require an independent
+  `DOCUMENT_CURSOR_SECRET` so cursors survive restarts.
 - Documented MCP metadata filters, bounded search expansion, and `get_chunk`
   neighbor controls. `document` expansion remains REST-only, and MCP tool
   errors retain stable public codes.
