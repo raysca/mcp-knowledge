@@ -53,9 +53,31 @@ describe("collapseSearchHits", () => {
       .toEqual([["doc-a", 1, 1], ["doc-b", 2, 1], ["doc-z", 3, 1]]);
   });
 
-  test("uses score before document id when chunk ranks tie", () => {
+  test("uses document id when chunk ranks tie, regardless of score", () => {
     const hits = [hit("doc-a", "a", 1, 0.4, []), hit("doc-z", "z", 1, 0.6, [])];
-    expect(collapseSearchHits(hits, 2).map(({ documentId }) => documentId)).toEqual(["doc-z", "doc-a"]);
+    expect(collapseSearchHits(hits, 2).map(({ documentId }) => documentId)).toEqual(["doc-a", "doc-z"]);
+  });
+
+  test("selects the lowest-ranked chunk even when it appears later", () => {
+    const hits = [
+      hit("doc-a", "a-worse", 4, 0.3, ["Later"]),
+      hit("doc-b", "b-best", 2, 0.8, ["B"]),
+      hit("doc-a", "a-best", 1, 0.9, ["Earlier"]),
+    ];
+
+    expect(collapseSearchHits(hits, 2)).toMatchObject([
+      { documentId: "doc-a", chunkId: "a-best", content: "a-best content", score: 0.9,
+        matchingChunkCount: 2, matchedHeadings: ["Later", "Earlier"],
+        ranking: { finalRank: 1, chunkRank: 1, vectorRank: 1 } },
+      { documentId: "doc-b", ranking: { finalRank: 2, chunkRank: 2 } },
+    ]);
+  });
+
+  test("selects a stable representative when chunks of one document share a rank", () => {
+    const alpha = hit("doc-a", "a", 1, 0.4, []);
+    const zulu = hit("doc-a", "z", 1, 0.6, []);
+    expect(collapseSearchHits([zulu, alpha], 1)[0]?.chunkId).toBe("a");
+    expect(collapseSearchHits([alpha, zulu], 1)[0]?.chunkId).toBe("a");
   });
 
   test.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])("rejects unsafe limit %s", (limit) => {

@@ -20,6 +20,14 @@ export function collapseSearchHits(hits: SearchHit[], limit: number): CollapsedS
         headings: new Set(),
       };
       byDocument.set(hit.documentId, entry);
+    } else if (hit.ranking.finalRank < entry.result.ranking.chunkRank ||
+        (hit.ranking.finalRank === entry.result.ranking.chunkRank && hit.chunkId < entry.result.chunkId)) {
+      entry.result = {
+        ...hit,
+        ranking: { ...hit.ranking, chunkRank: hit.ranking.finalRank },
+        matchingChunkCount: entry.result.matchingChunkCount,
+        matchedHeadings: entry.result.matchedHeadings,
+      };
     }
     entry.result.matchingChunkCount += 1;
     for (const rawHeading of hit.headingPath) {
@@ -34,7 +42,7 @@ export function collapseSearchHits(hits: SearchHit[], limit: number): CollapsedS
 
   return [...byDocument.values()]
     .map(({ result }) => result)
-    .sort((a, b) => a.ranking.chunkRank - b.ranking.chunkRank || b.score - a.score ||
+    .sort((a, b) => a.ranking.chunkRank - b.ranking.chunkRank ||
       (a.documentId < b.documentId ? -1 : a.documentId > b.documentId ? 1 : 0))
     .slice(0, limit)
     .map((hit, index) => ({ ...hit, ranking: { ...hit.ranking, finalRank: index + 1 } }));
