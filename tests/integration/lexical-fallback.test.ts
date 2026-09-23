@@ -93,6 +93,22 @@ describe("title-aware lexical fallback", () => {
     expect(await index.search({ query: "INV-0042 INV/0042 garden missing", limit: 8 })).toEqual([]);
   });
 
+  for (const { term, variants, repeatedContent } of [
+    { term: "µm", variants: "µm μm", repeatedContent: "µm" },
+    { term: "s", variants: "ſ s", repeatedContent: "s" },
+    { term: "σ", variants: "Σ σ ς", repeatedContent: "σ" },
+    { term: "ＦＯＯ", variants: "ＦＯＯ foo", repeatedContent: "ＦＯＯ foo" },
+  ]) {
+    test(`case and compatibility variants ${variants} cannot satisfy the threshold alone`, async () => {
+      await add("one", repeatedContent);
+      await add("two", `${term} soil`);
+      expect(ids(await index.search({ query: `${term} soil missing`, limit: 8 }))).toEqual(["two"]);
+      const hits = await index.search({ query: `${variants} soil missing`, limit: 8 });
+      expect(ids(hits)).toEqual(["two"]);
+      expect(hits[0]).toMatchObject({ lexicalMatchMode: "fallback" });
+    });
+  }
+
   test("distinct accented spellings retained by unicode61 remain distinct eligible terms", async () => {
     await add("greek", "λέξη");
     await add("vietnamese", "ộ");

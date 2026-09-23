@@ -22,13 +22,14 @@ const quoted = (term: string) => `"${term}"`;
 function fallbackTerms(tokens: string[]): string[] {
   const groups = new Map<string, Set<string>>();
   for (const token of tokens) {
-    // Identity only: canonical/case variants and punctuation-equivalent identifier
-    // phrases count once. unicode61 folds simple Latin accents, but retains Greek
-    // accents and Latin characters with multiple diacritics (e.g. Vietnamese ộ).
-    const key = token.normalize("NFC").toLowerCase().replace(/\p{Script=Latin}/gu, (letter) => {
-      const decomposed = letter.normalize("NFD");
-      return /^[a-z][\u0300-\u036f]$/u.test(decomposed) ? decomposed[0]! : letter;
-    }).match(/[\p{L}\p{N}\p{Co}]+/gu)?.join(" ") ?? "";
+    // Identity only: canonical/compatibility variants and identifier punctuation
+    // count once. NFKC folds micro-sign/mu and long-s/s; sigma also needs its final
+    // form folded. Keep Greek accents and multi-diacritic Latin characters (ộ).
+    const key = token.normalize("NFKC").toLowerCase().replace(/ς/g, "σ")
+      .replace(/\p{Script=Latin}/gu, (letter) => {
+        const decomposed = letter.normalize("NFD");
+        return /^[a-z][\u0300-\u036f]$/u.test(decomposed) ? decomposed[0]! : letter;
+      }).match(/[\p{L}\p{N}\p{Co}]+/gu)?.join(" ") ?? "";
     if (!key || FALLBACK_STOP_WORDS.has(key)) continue;
     const variants = groups.get(key) ?? new Set<string>();
     // Never normalize the searchable spelling: even canonical equivalents can
