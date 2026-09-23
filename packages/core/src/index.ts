@@ -54,6 +54,7 @@ export type {
   JobStatus,
   StoredChunk,
   SearchHit,
+  CollapsedSearchHit,
   ApiKey,
 } from "./domain/types.ts";
 export type {
@@ -89,3 +90,4 @@ export { chunkBlocks } from "./chunking/chunk.ts";
 export { loadWordPiece } from "./chunking/wordpiece.ts";
 export { compileFilters, parseFilters, placeholders } from "./retrieval/filters.ts";
 export { hybridRrf } from "./retrieval/rrf.ts";
+export { collapseSearchHits } from "./retrieval/collapse.ts";

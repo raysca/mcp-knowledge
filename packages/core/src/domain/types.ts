@@ -99,6 +99,12 @@ export type SearchHit = {
   metadata: Record<string, unknown>;
 };
 
+export type CollapsedSearchHit = SearchHit & {
+  matchingChunkCount: number;
+  matchedHeadings: string[];
+  ranking: SearchHit["ranking"] & { chunkRank: number };
+};
+
 export type ApiKey = {
   id: string;
   name: string;
