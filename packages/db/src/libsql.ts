@@ -52,7 +52,26 @@ export async function migrateLibsql(url: string): Promise<void> {
     ).text();
     await client.executeMultiple(sql);
   }
-  client.close();
+  try {
+    const tx = await client.transaction("write");
+    try {
+      const columns = await tx.execute("PRAGMA table_info(document_chunks_fts)");
+      if (!columns.rows.some((row) => row.name === "title")) {
+        const sql = await Bun.file(
+          new URL("../../../drizzle/0006_fts_titles.sql", import.meta.url),
+        ).text();
+        await tx.executeMultiple(sql);
+      }
+      await tx.commit();
+    } catch (error) {
+      await tx.rollback();
+      throw error;
+    } finally {
+      tx.close();
+    }
+  } finally {
+    client.close();
+  }
 }
 
 export function createLibsqlDb(url: string) {

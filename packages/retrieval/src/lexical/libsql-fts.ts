@@ -1,16 +1,31 @@
 import { createClient, type Client, type InValue } from "@libsql/client";
 import type { FilterClause, LexicalHit, LexicalIndex } from "@mcp-knowledge/core";
+import { logger, placeholders, serializeError } from "@mcp-knowledge/core";
 import { extraWhere, parseJson } from "../where.ts";
 
-function ftsMatchQuery(raw: string): string {
+function queryTokens(raw: string): string[] {
   return raw
     .trim()
     .split(/\s+/)
     .map((t) => t.replace(/"/g, ""))
-    .filter(Boolean)
-    .map((t) => `"${t}"`)
-    .join(" AND ");
+    .filter(Boolean);
 }
+
+// Deliberately small, static English stop-word set. Only the optional fallback
+// uses it; exact matching keeps every original token, including identifiers.
+const FALLBACK_STOP_WORDS = new Set(
+  "a an and are as at be by can do for from how i in is it me my of on or please that the this to was we what with you".split(" "),
+);
+
+function fallbackTerms(tokens: string[]): string[] {
+  // Match unicode61 word boundaries while keeping punctuation-separated identifiers
+  // as a single quoted phrase. Normalize case/accents before counting distinct terms.
+  const terms = tokens.map((token) => token.toLowerCase().normalize("NFD")
+    .replace(/\p{M}/gu, "").match(/[\p{L}\p{N}]+/gu)?.join(" ") ?? "");
+  return [...new Set(terms)].filter((term) => term && !FALLBACK_STOP_WORDS.has(term));
+}
+
+const quoted = (term: string) => `"${term}"`;
 
 export class LibsqlLexicalIndex implements LexicalIndex {
   private readonly client: Client;
@@ -26,18 +41,55 @@ export class LibsqlLexicalIndex implements LexicalIndex {
     filters?: FilterClause[];
     limit: number;
   }): Promise<LexicalHit[]> {
-    const match = ftsMatchQuery(input.query);
+    const tokens = queryTokens(input.query);
+    const match = tokens.map(quoted).join(" AND ");
     if (!match) return [];
+    const exact = await this.searchPass(input, match, "exact");
+    if (exact.length >= input.limit) return exact;
+    const terms = fallbackTerms(tokens);
+    if (terms.length < 2) return exact;
+
+    try {
+      const conditions: string[] = [];
+      const args: InValue[] = [];
+      if (terms.length >= 3) {
+        // Count distinct query-term matches in FTS itself (across all indexed
+        // columns), before ORDER BY/LIMIT. Repetition in a chunk counts only once.
+        conditions.push(`(${terms.map(() => `CASE WHEN document_chunks_fts.rowid IN
+          (SELECT rowid FROM document_chunks_fts WHERE document_chunks_fts MATCH ?)
+          THEN 1 ELSE 0 END`).join(" + ")}) >= 2`);
+        args.push(...terms.map(quoted));
+      }
+      if (exact.length) {
+        conditions.push(`c.id NOT IN (${placeholders(exact.length)})`);
+        args.push(...exact.map((hit) => hit.chunkId));
+      }
+      const fallback = await this.searchPass(
+        { ...input, limit: input.limit - exact.length }, terms.map(quoted).join(" OR "), "fallback",
+        conditions.length ? ` AND ${conditions.join(" AND ")}` : "", args,
+      );
+      return [...exact, ...fallback.map((hit, i) => ({ ...hit, lexicalRank: exact.length + i + 1 }))];
+    } catch (error) {
+      logger.warn({ event: "lexical_fallback_failed", error: serializeError(error) });
+      return exact;
+    }
+  }
+
+  private async searchPass(
+    input: Parameters<LexicalIndex["search"]>[0], match: string,
+    lexicalMatchMode: "exact" | "fallback", conditions = "", conditionArgs: InValue[] = [],
+  ): Promise<LexicalHit[]> {
     const extra = extraWhere(input);
     // See vector/libsql.ts - extra.args is validated as scalars by parseFilters upstream.
-    const args: InValue[] = [match, ...(extra.args as InValue[]), input.limit];
-    const sql = `SELECT c.id, c.document_id, c.revision_id, c.content, c.heading_path, c.location, d.title, rank
+    const args: InValue[] = [match, ...(extra.args as InValue[]), ...conditionArgs, input.limit];
+    const sql = `SELECT c.id, c.document_id, c.revision_id, c.content, c.heading_path, c.location, d.title,
+        bm25(document_chunks_fts, 0.0, 8.0, 4.0, 1.0) AS rank
       FROM document_chunks_fts
       JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
       JOIN documents d ON d.id = c.document_id
       WHERE document_chunks_fts MATCH ?
-        AND d.deleted_at IS NULL${extra.sql}
-      ORDER BY rank
+        AND d.deleted_at IS NULL${extra.sql}${conditions}
+      ORDER BY rank, c.id
       LIMIT ?`;
     const result = await this.client.execute({ sql, args });
     return result.rows.map((row, i) => {
@@ -54,6 +106,7 @@ export class LibsqlLexicalIndex implements LexicalIndex {
         score,
         lexicalRank: i + 1,
         lexicalScore: score,
+        lexicalMatchMode,
       };
     });
   }

@@ -76,5 +76,6 @@ describe("LibsqlLexicalIndex", () => {
     const fts = new LibsqlLexicalIndex(url);
     const hits = await fts.search({ query: "INV-0042", limit: 8 });
     expect(hits[0]?.chunkId).toBe("chk_sku");
+    expect(hits[0]).toMatchObject({ lexicalMatchMode: "exact", lexicalRank: 1 });
   });
 });

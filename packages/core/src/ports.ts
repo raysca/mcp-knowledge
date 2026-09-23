@@ -193,6 +193,7 @@ export type LexicalHit = {
   score: number;
   lexicalRank: number;
   lexicalScore: number;
+  lexicalMatchMode?: "exact" | "fallback";
 };
 
 export type FilterClause = {
