@@ -14,16 +14,25 @@ const normalized = {
 
 function fixture(key?: Uint8Array, document: object = normalized) {
   let revisionId = "rev_first";
+  let currentContent = document;
+  let revisionReady = true;
+  let blobMissing = false;
   const repo = {
     async getDocument() { return { id: "doc_a", currentRevisionId: revisionId }; },
-    async getRevision(id: string) { return { id, normalizedStorageKey: `normalized-${id}` }; },
+    async getRevision(id: string) { return { id, normalizedStorageKey: revisionReady ? `normalized-${id}` : undefined }; },
   } as unknown as KnowledgeRepository;
   const blobs = {
-    async get() { return new Blob([JSON.stringify(document)]); },
+    async get() {
+      if (blobMissing) throw new Error("blob not found: private/storage/key");
+      return new Blob([JSON.stringify(currentContent)]);
+    },
   } as unknown as BlobStore;
   return {
     service: new DocumentService(repo, blobs, 1024, key),
     nextRevision: () => { revisionId = "rev_second"; },
+    setRevisionReady: (ready: boolean) => { revisionReady = ready; },
+    setBlobMissing: (missing: boolean) => { blobMissing = missing; },
+    replaceContent: (next: object) => { currentContent = next; },
   };
 }
 
@@ -80,6 +89,53 @@ describe("DocumentService.normalizedPage", () => {
     nextRevision();
     await expect(service.normalizedPage("doc_a", { cursor: first.nextBlockCursor, maxChars: 200 }))
       .rejects.toMatchObject({ code: "CURSOR_STALE" });
+  });
+
+  test("same-revision changed normalized content makes a cursor stale", async () => {
+    const source = { metadata: {}, blocks: [
+      { type: "paragraph", text: "old first" },
+      { type: "paragraph", text: "old second" },
+    ] };
+    const { service, replaceContent } = fixture(undefined, source);
+    const first = await service.normalizedPage("doc_a", { blockLimit: 1 });
+    replaceContent({ metadata: {}, blocks: [
+      { type: "paragraph", text: "new inserted" },
+      ...source.blocks,
+    ] });
+    await expect(service.normalizedPage("doc_a", { cursor: first.nextBlockCursor }))
+      .rejects.toMatchObject({ code: "CURSOR_STALE" });
+  });
+
+  test("identical same-revision normalized content retains its cursor", async () => {
+    const source = { metadata: {}, blocks: [
+      { type: "paragraph", text: "first" },
+      { type: "paragraph", text: "second" },
+    ] };
+    const { service, replaceContent } = fixture(undefined, source);
+    const first = await service.normalizedPage("doc_a", { blockLimit: 1 });
+    replaceContent(JSON.parse(JSON.stringify(source)) as object);
+    const next = await service.normalizedPage("doc_a", { cursor: first.nextBlockCursor });
+    expect((JSON.parse(next.body) as { blocks: Array<{ text: string }> }).blocks[0]!.text).toBe("second");
+  });
+
+  test("a stale revision cursor wins over an unready or missing replacement blob", async () => {
+    for (const state of ["processing", "missing"] as const) {
+      const controls = fixture();
+      const first = await controls.service.normalizedPage("doc_a", { blockLimit: 1 });
+      controls.nextRevision();
+      if (state === "processing") controls.setRevisionReady(false);
+      else controls.setBlobMissing(true);
+      await expect(controls.service.normalizedPage("doc_a", { cursor: first.nextBlockCursor }))
+        .rejects.toMatchObject({ code: "CURSOR_STALE" });
+    }
+  });
+
+  test("an authenticated matching-revision cursor retains availability errors", async () => {
+    const controls = fixture();
+    const first = await controls.service.normalizedPage("doc_a", { blockLimit: 1 });
+    controls.setBlobMissing(true);
+    await expect(controls.service.normalizedPage("doc_a", { cursor: first.nextBlockCursor }))
+      .rejects.toMatchObject({ code: "DOCUMENT_CONTENT_UNAVAILABLE" });
   });
 
   test("random instance keys invalidate cursors from another local service", async () => {

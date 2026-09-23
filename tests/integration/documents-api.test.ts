@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
@@ -269,6 +269,38 @@ describe("documents API", () => {
       expect((JSON.parse(mcpPage.body) as { blocks: unknown[] }).blocks).toEqual(restPage.blocks);
     } finally {
       smallLimitApp.stop();
+    }
+  }, 40_000);
+
+  test("REST and MCP sanitize malformed stored headings", async () => {
+    const id = await readyDocument("corrupt-heading.md", "# Original\nContent");
+    const document = (await (await fetch(`${base}/api/v1/documents/${id}`)).json()) as { currentRevisionId: string };
+    const path = join(dir, "blobs", "documents", id, "revisions", document.currentRevisionId, "normalized.json");
+    for (const heading of [
+      { type: "heading", level: 1 },
+      { type: "heading", level: 1, text: 42 },
+      { type: "heading", level: "one", text: "Original" },
+      { type: "heading", level: 0, text: "Original" },
+    ]) {
+      await writeFile(path, JSON.stringify({ metadata: {}, blocks: [heading, { type: "paragraph", text: "Content" }] }));
+      const rest = await fetch(`${base}/api/v1/documents/${id}/normalized?heading=Original`);
+      expect(rest.status).toBe(500);
+      const restBody = (await rest.json()) as { error: { code: string; message: string } };
+      expect(restBody.error).toMatchObject({
+        code: "DOCUMENT_CONTENT_UNAVAILABLE",
+        message: "Normalized document content is unavailable.",
+      });
+      const mcp = await app.fetch(new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+          name: "get_document", arguments: { document_id: id, headings: ["Original"] },
+        } }),
+      }));
+      const mcpResult = (await mcp.json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
+      expect(mcpResult.result.isError).toBe(true);
+      expect(mcpResult.result.content[0]!.text)
+        .toBe("DOCUMENT_CONTENT_UNAVAILABLE: Normalized document content is unavailable.");
     }
   }, 40_000);
 

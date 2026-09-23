@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
 import { loadEnv } from "../../apps/server/src/config/env.ts";
+import { createKnowledgeRepository } from "../../packages/db/src/index.ts";
+import { LocalBlobStore } from "../../packages/storage/src/index.ts";
 
 describe("MCP", () => {
   let dir = "";
@@ -55,6 +57,28 @@ describe("MCP", () => {
       if (states.every((doc) => doc.status === "ready")) break;
       await Bun.sleep(50);
     }
+    const largeId = "doc_default_ceiling";
+    const revisionId = "rev_default_ceiling";
+    const normalizedKey = `documents/${largeId}/revisions/${revisionId}/normalized.json`;
+    const normalized = {
+      metadata: {},
+      blocks: Array.from({ length: 90 }, (_, index) => ({ type: "paragraph", text: `part ${index}: ${"content ".repeat(50)}` })),
+    };
+    const repo = createKnowledgeRepository(env.DATABASE_URL);
+    await repo.createDocument({
+      documentId: largeId, revisionId, originalFilename: "default-ceiling.md",
+      mimeType: "text/markdown", extension: "md", sizeBytes: 0,
+      sha256: "a".repeat(64), metadata: {},
+      storageKey: `documents/${largeId}/revisions/${revisionId}/original`,
+    });
+    await new LocalBlobStore(join(dir, "blobs")).put(normalizedKey, new Blob([JSON.stringify(normalized)]));
+    await repo.updateRevision(revisionId, {
+      parserName: "test-fixture", parserVersion: "1", chunkerName: "test-fixture",
+      chunkerVersion: "1", embeddingModel: "none", embeddingDimensions: 0,
+      embeddingVersion: "0", normalizedStorageKey: normalizedKey, chunkCount: 0,
+    });
+    await repo.setDocumentStatus(largeId, "ready");
+    documentIds.push(largeId);
     const chunks = await fetch(`${base}/api/v1/documents/${documentIds[0]}/chunks`);
     contextChunks = ((await chunks.json()) as { items: typeof contextChunks }).items;
   }, 60_000);
@@ -129,6 +153,44 @@ describe("MCP", () => {
       "Closing", `${"closing ".repeat(85).trim()}`,
     ]);
   });
+
+  test("get_document reconstructs a document larger than the default 32000-character ceiling", async () => {
+    const app = await createApp(loadEnv({
+      ROLE: "api",
+      DATABASE_URL: `file:${join(dir, "app.db")}`,
+      STORAGE_PATH: join(dir, "blobs"),
+    }));
+    try {
+      const id = documentIds[7]!;
+      const normalized = await app.services.documents.normalized(id);
+      expect(JSON.stringify(normalized).length).toBeGreaterThan(32_000);
+      const blocks: unknown[] = [];
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const response = await app.fetch(new Request("http://localhost/mcp", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+            name: "get_document",
+            arguments: { document_id: id, ...(cursor ? { block_cursor: cursor } : {}) },
+          } }),
+        }));
+        const rpc = (await response.json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
+        expect(rpc.result.isError).toBeUndefined();
+        const page = JSON.parse(rpc.result.content[0]!.text) as { body: string; nextBlockCursor?: string };
+        expect(page.body.length).toBeLessThanOrEqual(32_000);
+        blocks.push(...(JSON.parse(page.body) as { blocks: unknown[] }).blocks);
+        cursor = page.nextBlockCursor;
+        pages++;
+        expect(pages).toBeLessThan(10);
+      } while (cursor);
+      expect(pages).toBeGreaterThan(1);
+      expect(blocks).toEqual((normalized as { blocks: unknown[] }).blocks);
+    } finally {
+      app.stop();
+    }
+  }, 40_000);
 
   test("get_document selects heading sections before applying block_limit", async () => {
     const first = await getDocument(documentIds[0]!, {

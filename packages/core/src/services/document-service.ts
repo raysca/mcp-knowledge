@@ -6,7 +6,17 @@ import type { Document } from "../domain/types.ts";
 import type { NormalizedDocument } from "../domain/normalized.ts";
 import type { BlobStore, KnowledgeRepository } from "../ports.ts";
 import { extensionOf, isAllowedUpload, sniffMime } from "../mime.ts";
-import { pageNormalizedDocument, type DocumentPageResult } from "./document-page.ts";
+import { decodeBoundBlockCursor, pageNormalizedDocument, type DocumentPageResult } from "./document-page.ts";
+
+function contentUnavailable(documentId: string, revisionId: string, error: unknown): never {
+  logger.error({
+    event: "normalized_document_content_unavailable",
+    documentId,
+    revisionId,
+    error: serializeError(error),
+  });
+  throw new AppError("DOCUMENT_CONTENT_UNAVAILABLE", "Normalized document content is unavailable.", 500);
+}
 
 export function originalStorageKey(documentId: string, revisionId: string): string {
   return `documents/${documentId}/revisions/${revisionId}/original`;
@@ -153,6 +163,11 @@ export class DocumentService {
   } = {}): Promise<DocumentPageResult> {
     const doc = await this.get(id);
     if (!doc.currentRevisionId) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
+    if (options.cursor !== undefined) {
+      decodeBoundBlockCursor(options.cursor, this.cursorKey, {
+        documentId: id, revisionId: doc.currentRevisionId, headings: options.headings,
+      });
+    }
     const revision = await this.repo.getRevision(doc.currentRevisionId);
     if (!revision?.normalizedStorageKey) {
       throw new AppError("DOCUMENT_NOT_FOUND", "Normalized document is not ready.", 404);
@@ -163,29 +178,31 @@ export class DocumentService {
       const parsed: unknown = JSON.parse(await blob.text());
       if (typeof parsed !== "object" || parsed === null ||
           !Array.isArray((parsed as NormalizedDocument).blocks) ||
-          (parsed as NormalizedDocument).blocks.some((block) => typeof block !== "object" || block === null)) {
+          (parsed as NormalizedDocument).blocks.some((block) =>
+            typeof block !== "object" || block === null ||
+            (block.type === "heading" &&
+              (typeof block.text !== "string" || !Number.isSafeInteger(block.level) || block.level < 1)))) {
         throw new Error("Invalid normalized document content.");
       }
       normalized = parsed as NormalizedDocument;
     } catch (error) {
-      logger.error({
-        event: "normalized_document_content_unavailable",
+      return contentUnavailable(id, revision.id, error);
+    }
+    try {
+      return pageNormalizedDocument({
         documentId: id,
         revisionId: revision.id,
-        error: serializeError(error),
+        normalized,
+        cursor: options.cursor,
+        blockLimit: options.blockLimit ?? Math.max(1, normalized.blocks.length),
+        maxChars: options.maxChars ?? 32_000,
+        headings: options.headings,
+        cursorKey: this.cursorKey,
       });
-      throw new AppError("DOCUMENT_CONTENT_UNAVAILABLE", "Normalized document content is unavailable.", 500);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      return contentUnavailable(id, revision.id, error);
     }
-    return pageNormalizedDocument({
-      documentId: id,
-      revisionId: revision.id,
-      normalized,
-      cursor: options.cursor,
-      blockLimit: options.blockLimit ?? Math.max(1, normalized.blocks.length),
-      maxChars: options.maxChars ?? 32_000,
-      headings: options.headings,
-      cursorKey: this.cursorKey,
-    });
   }
 
   async reindex(id: string) {

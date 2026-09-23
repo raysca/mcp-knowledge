@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type { NormalizedDocument } from "../../packages/core/src/domain/normalized.ts";
 import {
   decodeBlockCursor,
@@ -105,6 +105,32 @@ describe("pageNormalizedDocument", () => {
     expect(() => pageNormalizedDocument({ ...base, cursor: cursor.slice(0, -1) + replacement })).toThrow(expect.objectContaining({ code: "INVALID_CURSOR" }));
   });
 
+  test("rejects correctly signed malformed JSON, negative index, and out-of-range index", () => {
+    const issued = pageNormalizedDocument({ ...base, blockLimit: 1 }).nextBlockCursor!;
+    const decoded = JSON.parse(Buffer.from(issued.split(".")[0]!, "base64url").toString("utf8"));
+    for (const text of ["{", JSON.stringify({ ...decoded, index: -1 }), JSON.stringify({ ...decoded, index: 999 })]) {
+      const payload = Buffer.from(text).toString("base64url");
+      const mac = createHmac("sha256", cursorKey).update(payload).digest("base64url");
+      expect(() => pageNormalizedDocument({ ...base, cursor: `${payload}.${mac}` }))
+        .toThrow(expect.objectContaining({ code: "INVALID_CURSOR" }));
+    }
+  });
+
+  test("a metadata-heavy envelope allows one block at its exact boundary", () => {
+    const source: NormalizedDocument = {
+      metadata: { description: "m".repeat(900) },
+      blocks: [{ type: "paragraph", text: "A" }, { type: "paragraph", text: "B" }],
+    };
+    const ceiling = JSON.stringify({ ...source, blocks: source.blocks.slice(0, 1) }).length;
+    const first = pageNormalizedDocument({ ...base, normalized: source, maxChars: ceiling });
+    expect(first.body.length).toBe(ceiling);
+    expect(first.returnedBlocks).toBe(1);
+    expect(first.nextBlockCursor).toBeString();
+    const second = pageNormalizedDocument({ ...base, normalized: source, maxChars: ceiling, cursor: first.nextBlockCursor });
+    expect((JSON.parse(second.body) as { blocks: Array<{ text: string }> }).blocks[0]!.text).toBe("B");
+    expect(second.truncated).toBe(false);
+  });
+
   test("rejects rewritten bindings and index even with a recomputed public SHA-256", () => {
     const issued = pageNormalizedDocument({ ...base, blockLimit: 1 }).nextBlockCursor!;
     const payload = JSON.parse(Buffer.from(issued.split(".")[0]!, "base64url").toString("utf8"));
@@ -129,9 +155,10 @@ describe("pageNormalizedDocument", () => {
   });
 
   test("round trips an opaque cursor without a storage key", () => {
-    const cursor = encodeBlockCursor({ documentId: "doc_a", revisionId: "rev_a", index: 4, headings: ["tools"] }, cursorKey);
+    const fingerprint = "a".repeat(64);
+    const cursor = encodeBlockCursor({ documentId: "doc_a", revisionId: "rev_a", fingerprint, index: 4, headings: ["tools"] }, cursorKey);
     expect(cursor).not.toContain("documents/");
-    expect(decodeBlockCursor(cursor, cursorKey)).toEqual({ documentId: "doc_a", revisionId: "rev_a", index: 4, headings: ["tools"] });
+    expect(decodeBlockCursor(cursor, cursorKey)).toEqual({ documentId: "doc_a", revisionId: "rev_a", fingerprint, index: 4, headings: ["tools"] });
     expect(() => decodeBlockCursor(cursor, Buffer.alloc(32, 0x11)))
       .toThrow(expect.objectContaining({ code: "INVALID_CURSOR" }));
   });

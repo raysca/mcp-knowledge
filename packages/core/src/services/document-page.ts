@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { DocumentBlock, NormalizedDocument } from "../domain/normalized.ts";
 import { AppError } from "../errors.ts";
 
@@ -24,8 +24,16 @@ export type DocumentPageResult = {
 export type BlockCursor = {
   documentId: string;
   revisionId: string;
+  fingerprint: string;
   index: number;
   headings: string[];
+};
+
+type CursorBindings = {
+  documentId: string;
+  revisionId: string;
+  headings?: string[];
+  fingerprint?: string;
 };
 
 function invalidCursor(): never {
@@ -93,6 +101,7 @@ export function decodeBlockCursor(value: string, key: Uint8Array): BlockCursor {
     if (
       typeof cursor.documentId !== "string" || !cursor.documentId ||
       typeof cursor.revisionId !== "string" || !cursor.revisionId ||
+      typeof cursor.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(cursor.fingerprint) ||
       !Number.isSafeInteger(cursor.index) || (cursor.index as number) < 0 ||
       !Array.isArray(cursor.headings) ||
       cursor.headings.some((heading) => typeof heading !== "string")
@@ -103,6 +112,17 @@ export function decodeBlockCursor(value: string, key: Uint8Array): BlockCursor {
   }
 }
 
+export function decodeBoundBlockCursor(value: string, key: Uint8Array, bindings: CursorBindings): BlockCursor {
+  const cursor = decodeBlockCursor(value, key);
+  const headings = headingSelection(bindings.headings);
+  if (cursor.documentId !== bindings.documentId || cursor.revisionId !== bindings.revisionId ||
+      JSON.stringify(cursor.headings) !== JSON.stringify(headings) ||
+      (bindings.fingerprint !== undefined && cursor.fingerprint !== bindings.fingerprint)) {
+    throw new AppError("CURSOR_STALE", "The block cursor does not match this document revision or heading selection.");
+  }
+  return cursor;
+}
+
 export function pageNormalizedDocument(input: DocumentPageInput): DocumentPageResult {
   requireCursorKey(input.cursorKey);
   if (!Number.isSafeInteger(input.blockLimit) || input.blockLimit < 1 ||
@@ -111,11 +131,10 @@ export function pageNormalizedDocument(input: DocumentPageInput): DocumentPageRe
   }
   const headings = headingSelection(input.headings);
   const blocks = selectedBlocks(input.normalized.blocks, headings);
-  const cursor = input.cursor === undefined ? undefined : decodeBlockCursor(input.cursor, input.cursorKey);
-  if (cursor && (cursor.documentId !== input.documentId || cursor.revisionId !== input.revisionId ||
-      JSON.stringify(cursor.headings) !== JSON.stringify(headings))) {
-    throw new AppError("CURSOR_STALE", "The block cursor does not match this document revision or heading selection.");
-  }
+  const fingerprint = createHash("sha256").update(JSON.stringify(input.normalized)).digest("hex");
+  const cursor = input.cursor === undefined ? undefined : decodeBoundBlockCursor(input.cursor, input.cursorKey, {
+    documentId: input.documentId, revisionId: input.revisionId, headings: input.headings, fingerprint,
+  });
   const start = cursor?.index ?? 0;
   if (start > blocks.length) invalidCursor();
 
@@ -144,6 +163,7 @@ export function pageNormalizedDocument(input: DocumentPageInput): DocumentPageRe
     ...(truncated ? { nextBlockCursor: encodeBlockCursor({
       documentId: input.documentId,
       revisionId: input.revisionId,
+      fingerprint,
       index: nextIndex,
       headings,
     }, input.cursorKey) } : {}),
