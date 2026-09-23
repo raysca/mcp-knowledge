@@ -227,6 +227,50 @@ Invalid arguments and metadata filters return MCP tool errors (`isError: true`)
 whose text retains stable public codes, such as `INVALID_TOOL_ARGUMENTS` and
 `INVALID_FILTER`.
 
+### Distinct-document search
+
+MCP `search_documents` and REST `POST /api/v1/search` accept
+`"collapse": "document"` when the caller wants to choose documents:
+
+```json
+{
+  "name": "search_documents",
+  "arguments": {
+    "query": "um how do I correct the invoice VAT amount please",
+    "collapse": "document",
+    "limit": 8
+  }
+}
+```
+
+Omitting `collapse` (or setting it to `"none"`) retains chunk results.
+Document mode groups the normal bounded candidate pools after chunk-level
+ranking. Each document keeps its best chunk, with document ID breaking ties;
+`ranking.finalRank` becomes the document rank, while vector/lexical ranks and
+the fusion score describe the selected chunk; `ranking.chunkRank` preserves
+its pre-collapse position. `matchingChunkCount` counts
+that document's fused candidates and `matchedHeadings` lists their unique
+headings. These summaries describe retrieved candidates, not all matches in
+the corpus. A document-dominated candidate pool may return fewer than `limit`
+distinct documents; there are no unbounded follow-up searches.
+
+Lexical retrieval first requires every original query token (`AND`). If that
+pass leaves candidate slots, a second pass drops a small static English
+stop-word set and matches eligible terms with `OR`. Three or more distinct
+eligible terms require at least two matches; two terms require at least one.
+Fewer than two eligible terms never enter fallback, so a standalone SKU-like
+identifier keeps all-terms matching. Exact-pass hits stay ahead of fallback
+hits in lexical rank; hybrid fusion also considers vector rank. Title,
+heading path, and content use FTS5 BM25 weights of 8, 4, and 1 respectively.
+Fallback failures preserve available exact/vector results. This is retrieval,
+not a guarantee that a returned document answers the question.
+
+These additions are currently unreleased. Consumers should feature-detect
+`collapse` in MCP `tools/list`, enable document mode explicitly, observe
+traces, and retain chunk behavior against older images. Record the deployed
+image digest so retrieval changes can roll back independently. The default
+remains chunk mode; changing it is reserved for a major version.
+
 If authentication is enabled, include a generated API key:
 
 ```json
@@ -426,6 +470,44 @@ bun test
 
 `bun run release:check` runs the release gate: type checking, tests, CSS build,
 Compose validation, both-platform Docker smoke, and scale-report validation.
+
+### Retrieval regression evaluation
+
+Run `bun test tests/retrieval/recall.test.ts` to ingest the 15 compact generic
+fixtures into a fresh temporary database and print JSON reports. The original
+22-query chunk-mode regression and its committed floors remain in place.
+The additional `magic-voice-queries.json` set contains 18 invented,
+anonymized, production-shaped utterances: filler-heavy project questions,
+confusable runbooks and invoices, exact identifier queries, and no-answer
+speech. All labels are grounded in existing fixtures. Invoice, returns, and
+expense codes stand in for SKU/model-shaped identifiers; there is no real
+product catalog, customer audio, or production query log in this evaluation.
+
+Both hybrid and lexical runs request `collapse: "document"`, `limit: 10`,
+check unique document IDs and structural provenance, and score 14 answerable
+queries. Recall@5/@10 is the per-query fraction of relevant distinct
+documents retrieved, averaged across queries; MRR uses the first relevant
+distinct-document rank. Duplicate IDs cannot inflate recall or consume rank.
+Two queries require both invoice documents, exercising partial recall.
+
+The no-answer policy is deliberately strict: **any returned document is a
+false positive**, with no score cutoff or downstream answer-generation step.
+The four no-answer cases include unrelated requests and questions that share
+words with a fixture but ask for facts it does not contain. Hybrid retrieval
+has no abstention threshold and returned hits for all four (100% false-positive
+rate); lexical retrieval returned hits for the two related cases (50%). The
+lexical regression ceiling is 50%; hybrid false positives are reported as a
+known limitation, not claimed as an abstention gate. The existing
+`noAnswer.retrievalRate` remains available alongside `falsePositiveRate` and
+the explicit policy name.
+
+Three fresh-corpus runs established recall@5, recall@10, and MRR floors of
+1.0 for both modes; measurements are recorded in
+`tests/retrieval/evaluation-runs.json`. Reports preserve `latencyMs.p50` and
+`latencyMs.p95` (nearest-rank percentiles of query HTTP timings after ingestion).
+Latency is reported, not gated against machine-specific millisecond limits.
+This small fixture suite is regression evidence only: it does not establish
+production ASR accuracy, catalog-scale retrieval quality, or safe abstention.
 
 ## License
 

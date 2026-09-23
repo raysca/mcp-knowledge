@@ -8,6 +8,7 @@ import { loadEnv } from "../../apps/server/src/config/env.ts";
 import queries from "./queries.json";
 import baseline from "./baseline.json";
 import evaluationRuns from "./evaluation-runs.json";
+import magicVoiceQueries from "./magic-voice-queries.json";
 import {
   deriveMetricFloors,
   evaluateQueries,
@@ -21,6 +22,9 @@ type RetrievalHit = {
   documentId: string;
   headingPath: string[];
   location?: { charStart?: number; charEnd?: number };
+  matchingChunkCount?: number;
+  matchedHeadings?: string[];
+  ranking?: { finalRank: number };
 };
 
 function hasStructuralProvenance(hit: RetrievalHit): boolean {
@@ -127,4 +131,56 @@ describe("retrieval recall", () => {
     expect(report.answerable.recallAt10).toBeGreaterThanOrEqual(baseline.recallAt10);
     expect(report.answerable.mrr).toBeGreaterThanOrEqual(baseline.mrr);
   }, 180_000);
+
+  for (const mode of ["hybrid", "lexical"] as const) {
+    test(`Magic Voice-style ${mode} search returns attributable distinct documents`, async () => {
+      const results: EvaluationResult[] = [];
+      for (const query of magicVoiceQueries as EvaluationQuery[]) {
+        const evaluatedQuery = {
+          ...query,
+          relevant: query.relevant.map((filename) => {
+            const id = fileToDoc.get(filename);
+            expect(id).toBeDefined();
+            return id!;
+          }),
+        };
+        const startedAt = performance.now();
+        const res = await fetch(`${base}/api/v1/search`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query: query.query, mode, collapse: "document", limit: 10 }),
+        });
+        expect(res.status).toBe(200);
+        const { hits } = (await res.json()) as { hits: RetrievalHit[] };
+        const latencyMs = performance.now() - startedAt;
+        const documentIds = hits.map((hit) => hit.documentId);
+        expect(new Set(documentIds).size).toBe(documentIds.length);
+        expect(hits.length).toBeLessThanOrEqual(10);
+        for (const [index, hit] of hits.entries()) {
+          expect(hit.ranking?.finalRank).toBe(index + 1);
+          expect(hit.matchingChunkCount).toBeGreaterThanOrEqual(1);
+          expect(Array.isArray(hit.matchedHeadings)).toBe(true);
+          expect(hasStructuralProvenance(hit)).toBe(true);
+        }
+        results.push({ query: evaluatedQuery, documentIds, latencyMs });
+      }
+      const report = evaluateQueries(results);
+      console.log(JSON.stringify({ suite: "magic-voice-document", mode, ...report }));
+      const recorded = evaluationRuns.magicVoice[mode];
+      expect(recorded.floor).toEqual(deriveMetricFloors(recorded.runs));
+      expect(report.answerable.recallAt5).toBeGreaterThanOrEqual(recorded.floor.recallAt5);
+      expect(report.answerable.recallAt10).toBeGreaterThanOrEqual(recorded.floor.recallAt10);
+      expect(report.answerable.mrr).toBeGreaterThanOrEqual(recorded.floor.mrr);
+      expect(report.noAnswer.policy).toBe("any-returned-document");
+      // Hybrid has no abstention threshold: report its false positives without
+      // pretending a ceiling of 100% is a useful regression gate.
+      if (mode === "lexical") {
+        expect(report.noAnswer.falsePositiveRate).toBeLessThanOrEqual(
+          evaluationRuns.magicVoice.lexical.falsePositiveRateCeiling,
+        );
+      }
+      expect(report.latencyMs.p50).toBeGreaterThanOrEqual(0);
+      expect(report.latencyMs.p95).toBeGreaterThanOrEqual(report.latencyMs.p50!);
+    }, 180_000);
+  }
 });
