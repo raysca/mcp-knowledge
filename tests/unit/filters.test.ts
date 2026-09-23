@@ -58,6 +58,52 @@ describe("filters", () => {
     expect(() => parseFilters({ year: { gte: 2020 } })).not.toThrow();
     expect(() => parseFilters({ tags: { in: ["a", "b"] } })).not.toThrow();
   });
+
+  for (const op of ["eq", "neq", "in", "gte", "lte"] as const) {
+    test(`rejects non-finite numeric ${op} values with INVALID_FILTER`, () => {
+      for (const number of [NaN, Infinity, -Infinity]) {
+        let error: unknown;
+        try { parseFilters({ year: { [op]: op === "in" ? [2026, number] : number } }); }
+        catch (caught) { error = caught; }
+        expect(error).toMatchObject({ code: "INVALID_FILTER", status: 400 });
+      }
+    });
+
+    test(`rejects overflowing JSON numbers in ${op} with INVALID_FILTER`, () => {
+      for (const literal of ["1e999", "-1e999"]) {
+        const raw = JSON.parse(`{"year":{"${op}":${op === "in" ? `[2026,${literal}]` : literal}}}`);
+        let error: unknown;
+        try { parseFilters(raw); }
+        catch (caught) { error = caught; }
+        expect(error).toMatchObject({ code: "INVALID_FILTER", status: 400 });
+      }
+    });
+  }
+
+  test("preserves finite numbers and existing scalar types across filter operators", () => {
+    for (const value of [0, -42, 4.5, Number.MAX_VALUE, "guide", true, false, null]) {
+      expect(parseFilters({ value })).toEqual([{ field: "value", op: "eq", value }]);
+      expect(parseFilters({ value: { eq: value, neq: value, in: [value] } })).toEqual([
+        { field: "value", op: "eq", value },
+        { field: "value", op: "neq", value },
+        { field: "value", op: "in", value: [value] },
+      ]);
+      if (typeof value === "number") {
+        expect(parseFilters({ value: { gte: value, lte: value } })).toEqual([
+          { field: "value", op: "gte", value }, { field: "value", op: "lte", value },
+        ]);
+      }
+    }
+  });
+
+  test("rejects non-finite shorthand equality values with INVALID_FILTER", () => {
+    for (const value of [NaN, Infinity, -Infinity]) {
+      let error: unknown;
+      try { parseFilters({ value }); }
+      catch (caught) { error = caught; }
+      expect(error).toMatchObject({ code: "INVALID_FILTER", status: 400 });
+    }
+  });
 });
 
 function unit(i: number, last = 0): number[] {
@@ -106,7 +152,7 @@ describe("filters inside candidate queries", () => {
       mimeType: "text/markdown",
       sizeBytes: 1,
       sha256: "pool",
-      metadata: {},
+      metadata: { year: 2026, rating: 4.5 },
       storageKey: "pool",
     });
     const chunks: StoredChunk[] = [];
@@ -126,7 +172,7 @@ describe("filters inside candidate queries", () => {
     await index.insert(embedded);
     const hits = await index.search({
       vector: unit(0, 0),
-      filters: [{ field: "keep", op: "eq", value: "yes" }],
+      filters: parseFilters({ keep: "yes", year: { in: [2025, 2026] }, rating: { gte: 4.25, lte: 4.75 } }),
       limit: 50,
     });
     expect(hits.length).toBe(50);

@@ -146,6 +146,23 @@ test("catalog rejects malformed cursors and unchecked fields before executing SQ
   });
 });
 
+test("catalog rejects non-finite parsed filter clauses before driver binding", async () => {
+  await withRepository(async (repo) => {
+    await create(repo, "finite", { year: 2026, rating: 4.5 });
+    await repo.setDocumentStatus("finite", "ready");
+    for (const op of ["eq", "neq", "in", "gte", "lte"] as const) {
+      for (const number of [NaN, Infinity, -Infinity, JSON.parse("1e999")]) {
+        await expect(repo.listDocumentCatalog({ limit: 10,
+          filters: [{ field: "year", op, value: op === "in" ? [2026, number] : number }],
+        })).rejects.toMatchObject({ code: "INVALID_FILTER", status: 400 });
+      }
+    }
+    expect((await repo.listDocumentCatalog({ limit: 10, fields: ["id"],
+      filters: parseFilters({ year: { eq: 2026, neq: 0, in: [2025, 2026] }, rating: { gte: 4.25, lte: 4.75 } }),
+    })).items).toEqual([{ id: "finite" }]);
+  });
+});
+
 test("catalog migration upgrades existing rows, rolls back a failure, and is idempotent", async () => {
   const dir = await mkdtemp(join(tmpdir(), "mcp-catalog-migration-"));
   const url = `file:${join(dir, "app.db")}`;

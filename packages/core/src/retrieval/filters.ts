@@ -9,7 +9,7 @@ const OPS: FilterOp[] = ["eq", "neq", "in", "exists", "gte", "lte"];
 
 type Scalar = string | number | boolean | null;
 function isScalar(v: unknown): v is Scalar {
-  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  return v === null || typeof v === "string" || (typeof v === "number" && Number.isFinite(v)) || typeof v === "boolean";
 }
 
 // ponytail: values reach the driver as bind parameters (packages/retrieval/src/where.ts) -
