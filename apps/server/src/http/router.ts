@@ -364,11 +364,13 @@ export async function handleRequest(
       const id = decodeURIComponent(normalizedMatch[1]!);
       const { body, ...page } = await svc.documents.normalizedPage(id, {
         cursor: url.searchParams.get("blockCursor") ?? undefined,
-        blockLimit: clampLimit(
-          url.searchParams.get("blockLimit"),
-          svc.env.MAX_LIST_LIMIT,
-          Math.min(50, svc.env.MAX_LIST_LIMIT),
-        ),
+        blockLimit: url.searchParams.has("blockLimit")
+          ? clampLimit(
+              url.searchParams.get("blockLimit"),
+              svc.env.MAX_LIST_LIMIT,
+              Math.min(50, svc.env.MAX_LIST_LIMIT),
+            )
+          : undefined,
         maxChars: svc.env.MAX_MCP_DOCUMENT_CHARS,
         headings: url.searchParams.getAll("heading"),
       });

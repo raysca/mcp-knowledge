@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
@@ -37,6 +37,7 @@ describe("MCP", () => {
       ["fourth.md", "# Fourth\n\nWidgets are stocked in aisle alpha."],
       ["fifth.md", "# Fifth\n\nWidgets are stocked in aisle beta."],
       ["sixth.md", "# Sixth\n\nWidgets are stocked in aisle gamma."],
+      ["missing-blob.md", "# Blob\n\nThis normalized blob will be removed."],
     ]) {
       const form = new FormData();
       form.set("file", new File([content], filename));
@@ -162,11 +163,25 @@ describe("MCP", () => {
   test("get_document validates bounded paging arguments", async () => {
     for (const args of [
       { block_limit: 0 }, { block_limit: 5 }, { block_limit: "oops" },
+      { block_limit: null }, { block_limit: "" },
       { block_cursor: 42 }, { headings: "Widgets" }, { headings: [42] },
     ]) {
       expect((await getDocument(documentIds[0]!, args)).error)
         .toStartWith("INVALID_TOOL_ARGUMENTS: ");
     }
+  });
+
+  test("get_document hides a missing normalized blob path behind a stable code", async () => {
+    const id = documentIds[6]!;
+    const documentResponse = await fetch(`${base}/api/v1/documents/${id}`);
+    const document = (await documentResponse.json()) as { currentRevisionId: string };
+    const key = `documents/${id}/revisions/${document.currentRevisionId}/normalized.json`;
+    await unlink(join(dir, "blobs", key));
+    const result = await getDocument(id);
+    expect(result.error).toBe("DOCUMENT_CONTENT_UNAVAILABLE: Normalized document content is unavailable.");
+    expect(result.error).not.toContain(key);
+    expect(result.error).not.toContain(dir);
+    expect(result.error).not.toContain("blob not found");
   });
 
   test("initialize and tools/list", async () => {

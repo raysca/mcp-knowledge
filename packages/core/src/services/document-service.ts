@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { AppError } from "../errors.ts";
 import { newId } from "../ids.ts";
+import { logger, serializeError } from "../logger.ts";
 import type { Document } from "../domain/types.ts";
 import type { NormalizedDocument } from "../domain/normalized.ts";
 import type { BlobStore, KnowledgeRepository } from "../ports.ts";
@@ -156,14 +157,31 @@ export class DocumentService {
     if (!revision?.normalizedStorageKey) {
       throw new AppError("DOCUMENT_NOT_FOUND", "Normalized document is not ready.", 404);
     }
-    const blob = await this.blobs.get(revision.normalizedStorageKey);
-    const normalized = JSON.parse(await blob.text()) as NormalizedDocument;
+    let normalized: NormalizedDocument;
+    try {
+      const blob = await this.blobs.get(revision.normalizedStorageKey);
+      const parsed: unknown = JSON.parse(await blob.text());
+      if (typeof parsed !== "object" || parsed === null ||
+          !Array.isArray((parsed as NormalizedDocument).blocks) ||
+          (parsed as NormalizedDocument).blocks.some((block) => typeof block !== "object" || block === null)) {
+        throw new Error("Invalid normalized document content.");
+      }
+      normalized = parsed as NormalizedDocument;
+    } catch (error) {
+      logger.error({
+        event: "normalized_document_content_unavailable",
+        documentId: id,
+        revisionId: revision.id,
+        error: serializeError(error),
+      });
+      throw new AppError("DOCUMENT_CONTENT_UNAVAILABLE", "Normalized document content is unavailable.", 500);
+    }
     return pageNormalizedDocument({
       documentId: id,
       revisionId: revision.id,
       normalized,
       cursor: options.cursor,
-      blockLimit: options.blockLimit ?? 50,
+      blockLimit: options.blockLimit ?? Math.max(1, normalized.blocks.length),
       maxChars: options.maxChars ?? 32_000,
       headings: options.headings,
       cursorKey: this.cursorKey,

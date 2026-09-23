@@ -182,14 +182,15 @@ small document fits in one response. For a larger document, pass the returned
 ```
 
 `block_cursor`, `block_limit`, and `headings` are optional. `block_limit` is
-bounded by `MAX_LIST_LIMIT`; `headings` selects complete sections by heading
-name before paging. Repeat the same `headings` on each continuation request.
-Each response includes `truncated`, `returnedBlocks`, and
-`totalBlocks`. Parse `body` on each page and append its `blocks` in order. A
-block or document envelope that cannot fit within the character ceiling
-returns `DOCUMENT_BLOCK_TOO_LARGE`. A cursor for another document, revision,
-or heading selection returns `CURSOR_STALE`; a malformed or changed cursor
-returns `INVALID_CURSOR`.
+bounded by `MAX_LIST_LIMIT` when supplied. Without it, each page includes as
+many whole blocks as fit within the character ceiling. `headings` selects
+complete sections by heading name before paging. Repeat the same `headings`
+on each continuation request. Each response includes `truncated`,
+`returnedBlocks`, and `totalBlocks`. Parse `body` on each page and append its
+`blocks` in order. A block or document envelope that cannot fit within the
+character ceiling returns `DOCUMENT_BLOCK_TOO_LARGE`. A cursor for another
+document, revision, or heading selection returns `CURSOR_STALE`; a malformed
+or changed cursor returns `INVALID_CURSOR`.
 
 ### Search context controls
 

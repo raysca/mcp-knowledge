@@ -199,7 +199,10 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
   }
   if (name === "get_document") {
     const doc = await svc.documents.get(String(args.document_id));
-    const blockLimit = boundedInteger(args.block_limit, {
+    if (args.block_limit === null || args.block_limit === "") {
+      throw new AppError("INVALID_TOOL_ARGUMENTS", "block_limit must be a positive integer.", 400);
+    }
+    const blockLimit = args.block_limit === undefined ? undefined : boundedInteger(args.block_limit, {
       name: "block_limit",
       defaultValue: Math.min(50, svc.env.MAX_LIST_LIMIT),
       min: 1,

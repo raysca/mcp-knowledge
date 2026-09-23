@@ -238,6 +238,40 @@ describe("documents API", () => {
     }
   }, 40_000);
 
+  test("omitted block limits return the same full small document through REST and MCP", async () => {
+    const id = await readyDocument("shared-omission.md", "# Maple\nLeaf\n# Oak\nBark\n# Pine\nCone");
+    const smallLimitApp = await createApp(loadEnv({
+      ROLE: "api",
+      DATABASE_URL: `file:${join(dir, "app.db")}`,
+      STORAGE_PATH: join(dir, "blobs"),
+      MAX_LIST_LIMIT: "2",
+      MAX_MCP_DOCUMENT_CHARS: "2000",
+    }));
+    try {
+      const rest = await smallLimitApp.fetch(new Request(`http://localhost/api/v1/documents/${id}/normalized`));
+      expect(rest.status).toBe(200);
+      const restPage = (await rest.json()) as { blocks: unknown[]; returnedBlocks: number; truncated: boolean };
+      const mcp = await smallLimitApp.fetch(new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+          name: "get_document", arguments: { document_id: id },
+        } }),
+      }));
+      expect(mcp.status).toBe(200);
+      const result = (await mcp.json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
+      expect(result.result.isError).toBeUndefined();
+      const mcpPage = JSON.parse(result.result.content[0]!.text) as { body: string; returnedBlocks: number; truncated: boolean };
+      expect(restPage.returnedBlocks).toBe(6);
+      expect(restPage.truncated).toBe(false);
+      expect(mcpPage.returnedBlocks).toBe(6);
+      expect(mcpPage.truncated).toBe(false);
+      expect((JSON.parse(mcpPage.body) as { blocks: unknown[] }).blocks).toEqual(restPage.blocks);
+    } finally {
+      smallLimitApp.stop();
+    }
+  }, 40_000);
+
   test("independent cursor secret survives app recreation and password guesses cannot verify it", async () => {
     const id = await readyDocument("persistent-cursor.md", "# One\nPersisted\n# Two\nSecond");
     const secret = Buffer.alloc(32, 0x45).toString("base64");
