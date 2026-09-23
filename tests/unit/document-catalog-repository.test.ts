@@ -171,13 +171,24 @@ test("catalog migration upgrades existing rows, rolls back a failure, and is ide
     await client.executeMultiple(await Bun.file(new URL("../../drizzle/0001_init.sql", import.meta.url)).text());
     await client.execute(`INSERT INTO documents(id, original_filename, mime_type, size_bytes, sha256, status, created_at, updated_at)
       VALUES ('legacy', 'legacy.md', 'text/markdown', 1, 'legacy', 'ready', 0, 0)`);
+    await client.executeMultiple(await Bun.file(new URL("../../drizzle/0002_embeddings.sql", import.meta.url)).text());
+    const repo = createKnowledgeRepository(url);
+    await create(repo, "retired");
+    await repo.replaceChunks("rev_retired", [{ id: "chk_retired", documentId: "retired", revisionId: "rev_retired",
+      sequence: 0, content: "retained history", embeddingText: "retained history", headingPath: [],
+      tokenCount: 2, metadata: {}, contentHash: "history", createdAt: new Date() }]);
+    const legacyVector = JSON.stringify(Array.from({ length: 384 }, (_, index) => index === 0 ? 1 : 0));
+    await client.execute({ sql: "UPDATE document_chunks SET embedding = vector32(?) WHERE id = 'chk_retired'", args: [legacyVector] });
+    await repo.softDeleteDocument("retired");
     // Conflicting schema makes index creation fail after the state table was created.
     await client.execute("CREATE TABLE documents_catalog_order (id INTEGER)");
     await expect(migrateLibsql(url)).rejects.toThrow();
     expect((await client.execute("SELECT name FROM sqlite_master WHERE name = 'corpus_state'")).rows).toHaveLength(0);
+    expect((await client.execute("SELECT vector_extract(embedding) AS vector FROM document_chunks WHERE id = 'chk_retired'")).rows[0]!.vector).toBe(legacyVector);
     await client.execute("DROP TABLE documents_catalog_order");
     await migrateLibsql(url);
-    const repo = createKnowledgeRepository(url);
+    expect(Number((await client.execute("SELECT embedding IS NULL AS cleared FROM document_chunks WHERE id = 'chk_retired'")).rows[0]!.cleared)).toBe(1);
+    expect((await client.execute("SELECT content FROM document_chunks WHERE id = 'chk_retired'")).rows[0]!.content).toBe("retained history");
     const generation = await repo.getCorpusGeneration();
     expect((await repo.listDocumentCatalog({ limit: 10, fields: ["id"] })).items).toEqual([{ id: "legacy" }]);
     await migrateLibsql(url);

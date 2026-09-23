@@ -7,6 +7,13 @@ CREATE TABLE IF NOT EXISTS corpus_state (
 INSERT OR IGNORE INTO corpus_state (id, generation)
 SELECT 1, count(*) FROM documents WHERE deleted_at IS NULL;
 
+-- Older source replacements left retired vectors in ANN candidate selection.
+-- This migration also runs at startup: preserve history and live vectors, and
+-- only repair non-NULL retired embeddings so repeated runs are no-ops.
+UPDATE document_chunks SET embedding = NULL
+WHERE embedding IS NOT NULL
+  AND document_id IN (SELECT id FROM documents WHERE deleted_at IS NOT NULL);
+
 CREATE INDEX IF NOT EXISTS documents_catalog_order ON documents(created_at DESC, id DESC)
 WHERE deleted_at IS NULL;
 
