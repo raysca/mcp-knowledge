@@ -31,6 +31,14 @@ export {
 export { assertSafeUrl, isBlockedIp } from "./ssrf.ts";
 export { DocumentService, originalStorageKey } from "./services/document-service.ts";
 export {
+  pageNormalizedDocument,
+  encodeBlockCursor,
+  decodeBlockCursor,
+  type BlockCursor,
+  type DocumentPageInput,
+  type DocumentPageResult,
+} from "./services/document-page.ts";
+export {
   ArchiveImportService,
   archiveStagingKey,
   type ArchiveImportLimits,
