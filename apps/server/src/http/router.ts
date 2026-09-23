@@ -81,6 +81,12 @@ function archiveImportJson(record: ArchiveImport) {
   };
 }
 
+function searchCollapse(value: unknown): "none" | "document" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "none" || value === "document") return value;
+  throw new AppError("SEARCH_COLLAPSE_UNSUPPORTED", "collapse must be none or document.", 400);
+}
+
 export async function handleRequest(
   req: Request,
   svc: AppServices,
@@ -411,6 +417,7 @@ export async function handleRequest(
         documentIds?: string[];
         filters?: unknown;
         mode?: string;
+        collapse?: unknown;
         limit?: number;
         expand?: { type?: string; before?: number; after?: number };
         explain?: boolean;
@@ -427,6 +434,7 @@ export async function handleRequest(
           documentIds: body.documentIds,
           filters: body.filters,
           mode: body.mode,
+          collapse: searchCollapse(body.collapse),
           limit,
           expand: body.expand,
           explain: body.explain,
@@ -443,6 +451,7 @@ export async function handleRequest(
         documentIds?: string[];
         filters?: unknown;
         mode?: string;
+        collapse?: unknown;
         limit?: number;
         expand?: { type?: string; before?: number; after?: number };
       };
@@ -458,6 +467,7 @@ export async function handleRequest(
           documentIds: body.documentIds,
           filters: body.filters,
           mode: body.mode,
+          collapse: searchCollapse(body.collapse),
           limit,
           expand: body.expand,
           explain: true,

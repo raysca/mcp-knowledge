@@ -1,13 +1,14 @@
 import { AppError } from "../errors.ts";
-import type { SearchHit } from "../domain/types.ts";
+import type { CollapsedSearchHit, SearchHit } from "../domain/types.ts";
 import type { Embedder, LexicalIndex, VectorHit, VectorIndex } from "../ports.ts";
 import { parseFilters } from "../retrieval/filters.ts";
 import { hybridRrf } from "../retrieval/rrf.ts";
+import { collapseSearchHits } from "../retrieval/collapse.ts";
 import type { KnowledgeRepository } from "../ports.ts";
 import type { StoredChunk } from "../domain/types.ts";
 
 export type SearchExplain = {
-  hits: SearchHit[];
+  hits: SearchHit[] | CollapsedSearchHit[];
   vector: VectorHit[];
   lexical: Awaited<ReturnType<LexicalIndex["search"]>>;
   timings: {
@@ -66,6 +67,7 @@ export class SearchService {
     documentIds?: string[];
     filters?: unknown;
     mode?: string;
+    collapse?: "none" | "document";
     limit: number;
     expand?: { type?: string; before?: number; after?: number };
     explain?: boolean;
@@ -75,6 +77,10 @@ export class SearchService {
     const mode = input.mode ?? "hybrid";
     if (mode !== "vector" && mode !== "lexical" && mode !== "hybrid") {
       throw new AppError("SEARCH_MODE_UNSUPPORTED", `Unknown search mode: ${mode}`, 400);
+    }
+    const collapse = input.collapse ?? "none";
+    if (collapse !== "none" && collapse !== "document") {
+      throw new AppError("SEARCH_COLLAPSE_UNSUPPORTED", `Unknown search collapse: ${collapse}`, 400);
     }
     const filters = parseFilters(input.filters);
     const expand = {
@@ -100,7 +106,7 @@ export class SearchService {
         documentIds: input.documentIds,
         filters,
         vector: vec,
-        limit: mode === "hybrid" ? this.limits.VECTOR_CANDIDATES : input.limit,
+        limit: mode === "hybrid" || collapse === "document" ? this.limits.VECTOR_CANDIDATES : input.limit,
       });
       vectorSearchMs = performance.now() - v0;
     }
@@ -111,7 +117,7 @@ export class SearchService {
         collectionIds: input.collectionIds,
         documentIds: input.documentIds,
         filters,
-        limit: mode === "hybrid" ? this.limits.LEXICAL_CANDIDATES : input.limit,
+        limit: mode === "hybrid" || collapse === "document" ? this.limits.LEXICAL_CANDIDATES : input.limit,
       });
       lexicalSearchMs = performance.now() - l0;
     }
@@ -141,7 +147,7 @@ export class SearchService {
       if (entry) entry.lex = h;
       else byId.set(h.chunkId, { lex: h });
     }
-    const top = fused.slice(0, input.limit);
+    const top = collapse === "document" ? fused : fused.slice(0, input.limit);
     const revCache = new Map<string, StoredChunk[]>();
     const hits: SearchHit[] = [];
     for (const [i, row] of top.entries()) {
@@ -149,7 +155,7 @@ export class SearchService {
       const src = entry?.vec ?? entry?.lex;
       if (!src) continue;
       let content = src.content;
-      if (expand.type !== "none") {
+      if (collapse === "none" && expand.type !== "none") {
         let all = revCache.get(src.revisionId);
         if (!all) {
           all = await this.repo.listRevisionChunks(src.revisionId);
@@ -180,6 +186,18 @@ export class SearchService {
         metadata: {},
       });
     }
+    const results = collapse === "document" ? collapseSearchHits(hits, input.limit) : hits;
+    if (collapse === "document" && expand.type !== "none") {
+      for (const hit of results) {
+        let all = revCache.get(hit.revisionId);
+        if (!all) {
+          all = await this.repo.listRevisionChunks(hit.revisionId);
+          revCache.set(hit.revisionId, all);
+        }
+        const self = all.find((chunk) => chunk.id === hit.chunkId);
+        if (self) hit.content = expandContent(self, all, expand);
+      }
+    }
     const fusionMs = performance.now() - f0;
     const totalMs = performance.now() - t0;
     const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
@@ -187,7 +205,7 @@ export class SearchService {
     const matchedTerms = qTokens.filter((t) => blob.includes(t.replace(/^"+|"+$/g, "")));
     if (input.explain) {
       return {
-        hits,
+        hits: results,
         vector,
         lexical,
         timings: { embeddingMs, vectorSearchMs, lexicalSearchMs, fusionMs, totalMs },
@@ -195,6 +213,6 @@ export class SearchService {
         filters: input.filters ?? {},
       };
     }
-    return { hits };
+    return { hits: results };
   }
 }

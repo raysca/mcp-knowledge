@@ -268,6 +268,7 @@ describe("MCP", () => {
     const document = tools.find((tool) => tool.name === "get_document")!;
     const list = tools.find((tool) => tool.name === "list_documents")!;
     expect(search.inputSchema.properties.limit).toMatchObject({ maximum: 3 });
+    expect(search.inputSchema.properties.collapse).toMatchObject({ type: "string", enum: ["none", "document"] });
     expect(list.inputSchema.properties.limit).toMatchObject({ maximum: 4 });
     expect(search.inputSchema.properties.filters).toMatchObject({ type: "object" });
     expect(search.inputSchema.properties.expand).toMatchObject({
@@ -302,6 +303,40 @@ describe("MCP", () => {
     const hits = JSON.parse(text) as Array<{ documentId: string; resourceUri: string }>;
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0]!.resourceUri.startsWith("document://")).toBe(true);
+  });
+
+  test("search_documents collapse returns distinct documents without changing default hit shape", async () => {
+    const search = async (collapse?: string) => {
+      const response = await rpc("tools/call", {
+        name: "search_documents",
+        arguments: { query: "widgets", mode: "lexical", limit: 3, ...(collapse ? { collapse } : {}) },
+      });
+      const result = (response.body as { result: { content: Array<{ text: string }>; isError?: boolean } }).result;
+      expect(result.isError).toBeUndefined();
+      return JSON.parse(result.content[0]!.text) as Array<{
+        documentId: string; rank: number; matchingChunkCount?: number; matchedHeadings?: string[];
+      }>;
+    };
+    const chunks = await search();
+    const explicitNone = await search("none");
+    const documents = await search("document");
+    expect(explicitNone).toEqual(chunks);
+    expect(chunks[0]).not.toHaveProperty("matchingChunkCount");
+    expect(new Set(documents.map((hit) => hit.documentId)).size).toBe(documents.length);
+    expect(documents[0]!.matchingChunkCount).toBeGreaterThanOrEqual(1);
+    expect(documents[0]!.matchedHeadings).toBeArray();
+    expect(documents.map((hit) => hit.rank)).toEqual(documents.map((_, index) => index + 1));
+  });
+
+  test("search_documents rejects unsupported collapse modes", async () => {
+    for (const collapse of ["paragraph", null, 1]) {
+      const response = await rpc("tools/call", {
+        name: "search_documents", arguments: { query: "widgets", collapse },
+      });
+      const result = (response.body as { result: { content: Array<{ text: string }>; isError?: boolean } }).result;
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toStartWith("INVALID_TOOL_ARGUMENTS: collapse must be none or document.");
+    }
   });
 
   test("search_documents expands neighboring chunks", async () => {

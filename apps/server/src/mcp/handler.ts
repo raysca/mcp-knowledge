@@ -1,7 +1,9 @@
 import {
   AppError,
   type CollectionService,
+  type CollapsedSearchHit,
   type DocumentService,
+  type SearchHit,
   type SearchService,
 } from "@mcp-knowledge/core";
 import { boundedInteger } from "./arguments.ts";
@@ -47,6 +49,7 @@ const tools = (env: McpServices["env"]) => [
         },
         limit: { type: "integer", minimum: 1, maximum: env.MAX_SEARCH_LIMIT_MCP },
         mode: { type: "string" },
+        collapse: { type: "string", enum: ["none", "document"] },
       },
       required: ["query"],
     },
@@ -102,6 +105,10 @@ function textResult(value: unknown) {
   return { content: [{ type: "text", text: JSON.stringify(value) }] };
 }
 
+function isCollapsedSearchHit(hit: SearchHit): hit is CollapsedSearchHit {
+  return "matchingChunkCount" in hit;
+}
+
 export async function handleMcp(body: unknown, svc: McpServices): Promise<unknown> {
   const msg = body as { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> };
   const id = msg.id ?? null;
@@ -152,6 +159,10 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
       min: 1,
       max: svc.env.MAX_SEARCH_LIMIT_MCP,
     });
+    if (args.collapse !== undefined && args.collapse !== "none" && args.collapse !== "document") {
+      throw new AppError("INVALID_TOOL_ARGUMENTS", "collapse must be none or document.", 400);
+    }
+    const collapse = args.collapse as "none" | "document" | undefined;
     if (args.expand != null && (typeof args.expand !== "object" || Array.isArray(args.expand))) {
       throw new AppError("INVALID_TOOL_ARGUMENTS", "expand must be an object.", 400);
     }
@@ -182,6 +193,7 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
       documentIds: args.document_ids as string[] | undefined,
       filters: args.filters,
       mode: typeof args.mode === "string" ? args.mode : "hybrid",
+      collapse,
       limit,
       expand: { type, before, after },
     });
@@ -194,6 +206,11 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
       headingPath: h.headingPath,
       location: h.location,
       rank: h.ranking.finalRank,
+      ...(collapse === "document" && isCollapsedSearchHit(h) ? {
+        matchingChunkCount: h.matchingChunkCount,
+        matchedHeadings: h.matchedHeadings,
+        chunkRank: h.ranking.chunkRank,
+      } : {}),
       resourceUri: `document://${h.documentId}`,
     }));
   }
