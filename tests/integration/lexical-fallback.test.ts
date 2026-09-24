@@ -238,4 +238,10 @@ describe("title-aware lexical fallback", () => {
     await repo.replaceChunks("rev-guide", []);
     expect(await index.search({ query: "newtitle", limit: 8 })).toEqual([]);
   });
+
+  test("prefix wildcard matching works in both exact and fallback search", async () => {
+    await add("candidate", "the candidate was selected");
+    expect(ids(await index.search({ query: "cand*", limit: 8 }))).toEqual(["candidate"]);
+    expect(ids(await index.search({ query: "can* nonexistingterm", limit: 8 }))).toEqual(["candidate"]);
+  });
 });
