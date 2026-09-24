@@ -84,6 +84,17 @@ describe("hybrid search", () => {
     expect(body.hits[0]?.ranking.lexicalRank).toBe(1);
   });
 
+  test("lexical mode supports prefix wildcard searches", async () => {
+    const res = await fetch(`${base}/api/v1/search`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "INV-004*", mode: "lexical", limit: 8 }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hits: Array<{ documentId: string }> };
+    expect(body.hits.some((h) => h.documentId === invoiceId)).toBe(true);
+  });
+
   test("explain includes timings and fusion fields", async () => {
     const res = await fetch(`${base}/api/v1/search/explain`, {
       method: "POST",
@@ -223,6 +234,18 @@ describe("document collapse candidate pools", () => {
     });
     const result = await bounded.search({ query: "garden", mode: "hybrid", collapse: "document", limit: 3 });
     expect(result.hits.map((hit) => hit.documentId)).toEqual(["a", "b"]);
+  });
+
+  test("collapse adaptively expands candidate pool when distinct documents are dominated by a single document", async () => {
+    seen.vectorLimits.length = 0;
+    seen.lexicalLimits.length = 0;
+    const adaptive = new SearchService(embedder, vectors, lexical, repo, {
+      VECTOR_CANDIDATES: 4, LEXICAL_CANDIDATES: 4, MAX_COLLAPSE_CANDIDATES: 10, RRF_K: 60,
+    });
+    const result = await adaptive.search({ query: "garden", mode: "hybrid", collapse: "document", limit: 3 });
+    expect(result.hits.map((hit) => hit.documentId)).toEqual(["a", "b", "c"]);
+    expect(seen.vectorLimits).toEqual([4, 9]);
+    expect(seen.lexicalLimits).toEqual([4, 9]);
   });
 
   test("omitted collapse retains requested pool sizes and chunk result fields", async () => {

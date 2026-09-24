@@ -86,6 +86,7 @@ export class IngestionService {
       doc.originalFilename;
     const drafts = chunkBlocks(normalized.blocks, {
       title,
+      context: typeof doc.metadata?.documentType === "string" ? `Type: ${doc.metadata.documentType}` : undefined,
       // Same bytes can be re-imported after a source rename or metadata update.
       // Scope IDs to the revision so retired chunks cannot collide with new ones;
       // retries within this revision still produce exactly the same IDs.

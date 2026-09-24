@@ -113,9 +113,13 @@ function makeEmbeddingText(
   headingPath: string[],
   content: string,
   countTokens: CountTokens,
+  context?: string,
 ): string {
-  const section = headingPath.join(" > ");
-  const prefix = `Document: ${title}\nSection: ${section}\n\n`;
+  const parts: string[] = [];
+  if (title) parts.push(`Document: ${title}`);
+  if (headingPath.length > 0) parts.push(`Section: ${headingPath.join(" > ")}`);
+  if (context) parts.push(`Context: ${context}`);
+  const prefix = parts.length > 0 ? `${parts.join("\n")}\n\n` : "";
   const bodyWords = wordsOf(content);
   if (bodyWords.length === 0 || countTokens(prefix + content) <= EMBEDDING_MAX_TOKENS) {
     return prefix + content;
@@ -139,9 +143,9 @@ function chunkId(revisionHash: string, headingPath: string[], content: string): 
 
 export function chunkBlocks(
   blocks: DocumentBlock[],
-  input: { title: string; revisionHash: string; countTokens: CountTokens },
+  input: { title: string; revisionHash: string; countTokens: CountTokens; context?: string },
 ): ChunkDraft[] {
-  const { title, revisionHash, countTokens } = input;
+  const { title, revisionHash, countTokens, context } = input;
   const pieces: ChunkPiece[] = [];
   for (const unit of flatten(blocks)) {
     let rest = unit.text;
@@ -206,7 +210,7 @@ export function chunkBlocks(
 
   return sized.map((p, sequence) => {
     const content = p.text;
-    const embeddingText = makeEmbeddingText(title, p.headingPath, content, countTokens);
+    const embeddingText = makeEmbeddingText(title, p.headingPath, content, countTokens, context);
     const hasher = new Bun.CryptoHasher("sha256");
     hasher.update(content);
     return {

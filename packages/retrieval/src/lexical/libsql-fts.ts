@@ -21,7 +21,8 @@ const FALLBACK_STOP_WORDS = new Set(
   "a an and are as at be by can do for from how i in is it me my of on or please that the this to was we what with you".split(" "),
 );
 
-const quoted = (term: string) => `"${term}"`;
+const quoted = (term: string) =>
+  term.endsWith("*") && term.length > 1 ? `"${term.slice(0, -1)}"*` : `"${term}"`;
 
 function fallbackTerms(tokens: string[]): string[] {
   const groups = new Map<string, Set<string>>();

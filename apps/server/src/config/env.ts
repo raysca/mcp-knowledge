@@ -23,6 +23,7 @@ export type AppEnv = {
   EMBEDDING_BATCH_SIZE: number;
   VECTOR_CANDIDATES: number;
   LEXICAL_CANDIDATES: number;
+  MAX_COLLAPSE_CANDIDATES: number;
   RRF_K: number;
   JOB_LEASE_MS: number;
   WORKER_CONCURRENCY: number;
@@ -140,6 +141,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     EMBEDDING_BATCH_SIZE: int(source.EMBEDDING_BATCH_SIZE, 32),
     VECTOR_CANDIDATES: int(source.VECTOR_CANDIDATES, 50),
     LEXICAL_CANDIDATES: int(source.LEXICAL_CANDIDATES, 50),
+    MAX_COLLAPSE_CANDIDATES: int(source.MAX_COLLAPSE_CANDIDATES, 200),
     RRF_K: int(source.RRF_K, 60),
     JOB_LEASE_MS: int(source.JOB_LEASE_MS, 300_000),
     WORKER_CONCURRENCY: int(
