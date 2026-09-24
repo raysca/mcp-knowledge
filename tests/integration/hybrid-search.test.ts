@@ -238,4 +238,27 @@ describe("document collapse candidate pools", () => {
       expect(seen.lexicalLimits).toEqual(mode === "lexical" ? [2, 2] : []);
     }
   });
+
+  test("section expansion for headingless preamble chunk does not leak subsequent sections", async () => {
+    const preambleRepo = {
+      listRevisionChunks: async () => [
+        { id: "c0", sequence: 0, content: "Preamble paragraph 1", headingPath: [] },
+        { id: "c1", sequence: 1, content: "Preamble paragraph 2", headingPath: [] },
+        { id: "c2", sequence: 2, content: "First heading content", headingPath: ["Overview"] },
+      ],
+    } as unknown as KnowledgeRepository;
+    const preambleService = new SearchService(embedder, {
+      ...vectors,
+      search: async () => [{
+        chunkId: "c0", documentId: "doc_preamble", revisionId: "rev_p", title: "Doc",
+        content: "Preamble paragraph 1", headingPath: [], score: 1, vectorRank: 1, vectorScore: 1,
+      }],
+    } as unknown as VectorIndex, lexical, preambleRepo, {
+      VECTOR_CANDIDATES: 5, LEXICAL_CANDIDATES: 5, RRF_K: 60,
+    });
+    const result = await preambleService.search({
+      query: "preamble", mode: "vector", limit: 1, expand: { type: "section" },
+    });
+    expect(result.hits[0]?.content).toBe("Preamble paragraph 1\n\nPreamble paragraph 2");
+  });
 });

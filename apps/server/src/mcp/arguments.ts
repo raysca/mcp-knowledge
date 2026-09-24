@@ -1,4 +1,4 @@
-import { AppError } from "../../../../packages/core/src/errors.ts";
+import { AppError } from "@mcp-knowledge/core";
 
 type IntegerOptions = {
   name: string;

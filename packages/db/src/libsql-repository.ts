@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   ApiKey,
   ArchiveImport,
@@ -308,7 +308,10 @@ class LibSqlKnowledgeRepository implements KnowledgeRepository {
     if (!Array.isArray(fields) || fields.length === 0 || fields.some((field) => !catalogFields.includes(field))) {
       throw new AppError("INVALID_PROJECTION", "Catalog fields must come from the fixed projection.");
     }
-    const predicates = [isNull(documents.deletedAt), eq(documents.status, status)];
+    const predicates = [
+      status === "deleted" ? isNotNull(documents.deletedAt) : isNull(documents.deletedAt),
+      eq(documents.status, status),
+    ];
     if (q.collectionId !== undefined) predicates.push(eq(documents.collectionId, q.collectionId));
     if (q.cursor !== undefined) {
       // A cursor is a seek boundary, so removing its anchor cannot cause repeats or a restart.

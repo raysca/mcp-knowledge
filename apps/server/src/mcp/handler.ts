@@ -245,7 +245,6 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
     }));
   }
   if (name === "get_document") {
-    const doc = await svc.documents.get(String(args.document_id));
     if (args.block_limit === null || args.block_limit === "") {
       throw new AppError("INVALID_TOOL_ARGUMENTS", "block_limit must be a positive integer.", 400);
     }
@@ -263,14 +262,14 @@ async function callTool(name: string, args: Record<string, unknown>, svc: McpSer
         (!Array.isArray(args.headings) || args.headings.some((heading) => typeof heading !== "string"))) {
       throw new AppError("INVALID_TOOL_ARGUMENTS", "headings must be an array of strings.", 400);
     }
-    const page = await svc.documents.normalizedPage(doc.id, {
+    const { document, ...page } = await svc.documents.normalizedPage(String(args.document_id), {
       cursor: args.block_cursor as string | undefined,
       blockLimit,
       maxChars: svc.env.MAX_MCP_DOCUMENT_CHARS,
       headings: args.headings as string[] | undefined,
     });
     return {
-      ...doc,
+      ...document,
       ...page,
     };
   }

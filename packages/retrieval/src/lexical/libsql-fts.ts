@@ -3,12 +3,16 @@ import type { FilterClause, LexicalHit, LexicalIndex } from "@mcp-knowledge/core
 import { logger, placeholders, serializeError } from "@mcp-knowledge/core";
 import { extraWhere, parseJson } from "../where.ts";
 
+const MAX_EXACT_TOKENS = 50;
+const MAX_FALLBACK_TERMS = 12;
+
 function queryTokens(raw: string): string[] {
   return raw
     .trim()
     .split(/\s+/)
     .map((t) => t.replace(/"/g, ""))
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, MAX_EXACT_TOKENS);
 }
 
 // Deliberately small, static English stop-word set. Only the optional fallback
@@ -37,7 +41,9 @@ function fallbackTerms(tokens: string[]): string[] {
     variants.add(quoted(token));
     groups.set(key, variants);
   }
-  return [...groups.values()].map((variants) => `(${[...variants].join(" OR ")})`);
+  return [...groups.values()]
+    .slice(0, MAX_FALLBACK_TERMS)
+    .map((variants) => `(${[...variants].join(" OR ")})`);
 }
 
 export class LibsqlLexicalIndex implements LexicalIndex {

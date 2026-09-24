@@ -388,7 +388,7 @@ export async function handleRequest(
     const normalizedMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/normalized$/);
     if (normalizedMatch && req.method === "GET") {
       const id = decodeURIComponent(normalizedMatch[1]!);
-      const { body, ...page } = await svc.documents.normalizedPage(id, {
+      const { body, document: _doc, ...page } = await svc.documents.normalizedPage(id, {
         cursor: url.searchParams.get("blockCursor") ?? undefined,
         blockLimit: url.searchParams.has("blockLimit")
           ? clampLimit(

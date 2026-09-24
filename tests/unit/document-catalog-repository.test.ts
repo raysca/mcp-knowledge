@@ -86,6 +86,8 @@ test("catalog defaults to live ready rows and exposes only the requested safe fi
     }]);
     expect((await repo.listDocumentCatalog({ limit: 10, status: "failed", fields: ["id", "sourcePath", "status"] })).items)
       .toEqual([{ id: "failed", sourcePath: "failed.md", status: "failed" }]);
+    expect((await repo.listDocumentCatalog({ limit: 10, status: "deleted", fields: ["id", "sourcePath", "status"] })).items)
+      .toEqual([{ id: "deleted", sourcePath: "deleted.md", status: "deleted" }]);
     const projected = (await repo.listDocumentCatalog({ limit: 10, fields: ["updatedAt"] })).items[0];
     expect(Object.keys(projected!)).toEqual(["updatedAt"]);
     expect(projected?.updatedAt).toBeInstanceOf(Date);

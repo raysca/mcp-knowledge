@@ -155,13 +155,14 @@ export class DocumentService {
     return JSON.parse(await blob.text());
   }
 
-  async normalizedPage(id: string, options: {
+  async normalizedPage(documentOrId: string | Document, options: {
     cursor?: string;
     blockLimit?: number;
     maxChars?: number;
     headings?: string[];
-  } = {}): Promise<DocumentPageResult> {
-    const doc = await this.get(id);
+  } = {}): Promise<DocumentPageResult & { document: Document }> {
+    const doc = typeof documentOrId === "string" ? await this.get(documentOrId) : documentOrId;
+    const id = doc.id;
     if (!doc.currentRevisionId) throw new AppError("DOCUMENT_NOT_FOUND", "Document was not found.", 404);
     if (options.cursor !== undefined) {
       decodeBoundBlockCursor(options.cursor, this.cursorKey, {
@@ -189,7 +190,7 @@ export class DocumentService {
       return contentUnavailable(id, revision.id, error);
     }
     try {
-      return pageNormalizedDocument({
+      const page = pageNormalizedDocument({
         documentId: id,
         revisionId: revision.id,
         normalized,
@@ -199,6 +200,7 @@ export class DocumentService {
         headings: options.headings,
         cursorKey: this.cursorKey,
       });
+      return { document: doc, ...page };
     } catch (error) {
       if (error instanceof AppError) throw error;
       return contentUnavailable(id, revision.id, error);

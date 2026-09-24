@@ -39,7 +39,13 @@ function expandContent(hit: StoredChunk, all: StoredChunk[], expand: { type: str
     return around.map((c) => c.content).join("\n\n");
   }
   if (expand.type === "section") {
-    const section = all.filter((c) => headingPrefix(c.headingPath, hit.headingPath)).slice(0, 40);
+    const section = all
+      .filter((c) =>
+        hit.headingPath.length === 0
+          ? c.headingPath.length === 0
+          : headingPrefix(c.headingPath, hit.headingPath),
+      )
+      .slice(0, 40);
     return section.map((c) => c.content).join("\n\n");
   }
   if (expand.type === "document") {

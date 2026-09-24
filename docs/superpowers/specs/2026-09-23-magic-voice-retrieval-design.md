@@ -183,7 +183,7 @@ only fields needed to choose a document:
 
 ```json
 {
-  "corpusVersion": "sha256:...",
+  "corpusVersion": "generation:42",
   "items": [
     {
       "id": "doc_...",
