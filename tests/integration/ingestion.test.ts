@@ -63,6 +63,21 @@ describe("ingestion", () => {
     expect(page.truncated).toBe(false);
   });
 
+  test("upload with metadata.documentType includes context in stored chunks", async () => {
+    const form = new FormData();
+    form.set("file", new File(["Preamble without heading."], "typed.md"));
+    form.set("metadata", JSON.stringify({ documentType: "api_spec" }));
+    const created = await fetch(`${base}/api/v1/documents`, { method: "POST", body: form });
+    expect(created.status).toBe(202);
+    const body = (await created.json()) as { id: string };
+    await waitForStatus(base, body.id, ["ready"]);
+
+    const chunks = await fetch(`${base}/api/v1/documents/${body.id}/chunks`);
+    expect(chunks.status).toBe(200);
+    const listed = (await chunks.json()) as { items: Array<{ embeddingText: string }> };
+    expect(listed.items[0]!.embeddingText).toContain("Context: Type: api_spec");
+  });
+
   test("docx fixture is parsed via anydoc subprocess", async () => {
     const bytes = await Bun.file(new URL("../../scripts/fixtures/hello.docx", import.meta.url)).bytes();
     const form = new FormData();

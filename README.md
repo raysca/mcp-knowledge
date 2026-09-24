@@ -259,10 +259,12 @@ scores, or fusion score.
 Both APIs include `matchingChunkCount`, which counts that document's fused
 candidates, and `matchedHeadings`, which lists their unique
 headings. These summaries describe retrieved candidates, not all matches in
-the corpus. A document-dominated candidate pool may return fewer than `limit`
-distinct documents; there are no unbounded follow-up searches.
+the corpus. When documents dominate the candidate pool, candidate retrieval
+adaptively expands up to `MAX_COLLAPSE_CANDIDATES` (default 200) to find distinct
+documents while remaining strictly bounded.
 
-Lexical retrieval first requires every original query token (`AND`). If that
+Lexical retrieval first requires every original query token (`AND`), supporting
+trailing prefix wildcards (e.g. `INV-004*`). If that
 pass leaves candidate slots, a second pass drops a small static English
 stop-word set and matches eligible terms with `OR`. Three or more distinct
 eligible terms require at least two matches; two terms require at least one.

@@ -12,6 +12,7 @@ describe("loadEnv", () => {
     expect(env.ROLE).toBe("all");
     expect(env.MAX_UPLOAD_BYTES).toBe(67_108_864);
     expect(env.MAX_LIST_LIMIT).toBe(100);
+    expect(env.MAX_COLLAPSE_CANDIDATES).toBe(200);
     expect(env.DASHBOARD_PASSPHRASE).toBeUndefined();
     expect(env.DOCUMENT_CURSOR_SECRET).toBeUndefined();
   });

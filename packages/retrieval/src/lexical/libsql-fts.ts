@@ -21,7 +21,8 @@ const FALLBACK_STOP_WORDS = new Set(
   "a an and are as at be by can do for from how i in is it me my of on or please that the this to was we what with you".split(" "),
 );
 
-const quoted = (term: string) => `"${term}"`;
+const quoted = (term: string) =>
+  term.endsWith("*") && term.length > 1 ? `"${term.slice(0, -1)}"*` : `"${term}"`;
 
 function fallbackTerms(tokens: string[]): string[] {
   const groups = new Map<string, Set<string>>();
@@ -34,7 +35,8 @@ function fallbackTerms(tokens: string[]): string[] {
         const decomposed = letter.normalize("NFD");
         return /^[a-z][\u0300-\u036f]$/u.test(decomposed) ? decomposed[0]! : letter;
       }).match(/[\p{L}\p{N}\p{Co}]+/gu)?.join(" ") ?? "";
-    if (!key || FALLBACK_STOP_WORDS.has(key)) continue;
+    const isWildcard = token.endsWith("*") && token.length > 1;
+    if (!key || (!isWildcard && FALLBACK_STOP_WORDS.has(key))) continue;
     const variants = groups.get(key) ?? new Set<string>();
     // Never normalize the searchable spelling: even canonical equivalents can
     // tokenize differently. An OR group retains them all but contributes one match.

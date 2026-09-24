@@ -64,6 +64,7 @@ export class SearchService {
       VECTOR_CANDIDATES: number;
       LEXICAL_CANDIDATES: number;
       RRF_K: number;
+      MAX_COLLAPSE_CANDIDATES?: number;
     },
   ) {}
 
@@ -100,19 +101,23 @@ export class SearchService {
     let lexicalSearchMs = 0;
     let vector: VectorHit[] = [];
     let lexical: Awaited<ReturnType<LexicalIndex["search"]>> = [];
+    let vecLimit = mode === "hybrid" || collapse === "document" ? this.limits.VECTOR_CANDIDATES : input.limit;
+    let lexLimit = mode === "hybrid" || collapse === "document" ? this.limits.LEXICAL_CANDIDATES : input.limit;
+    let vec: number[] | undefined;
 
     if (mode === "vector" || mode === "hybrid") {
       const e0 = performance.now();
-      const [vec] = await this.embedder.embed([query]);
+      const [embedded] = await this.embedder.embed([query]);
       embeddingMs = performance.now() - e0;
-      if (!vec) throw new AppError("INTERNAL_ERROR", "Embedder returned no vector.", 500);
+      if (!embedded) throw new AppError("INTERNAL_ERROR", "Embedder returned no vector.", 500);
+      vec = embedded;
       const v0 = performance.now();
       vector = await this.vectors.search({
         collectionIds: input.collectionIds,
         documentIds: input.documentIds,
         filters,
         vector: vec,
-        limit: mode === "hybrid" || collapse === "document" ? this.limits.VECTOR_CANDIDATES : input.limit,
+        limit: vecLimit,
       });
       vectorSearchMs = performance.now() - v0;
     }
@@ -123,9 +128,60 @@ export class SearchService {
         collectionIds: input.collectionIds,
         documentIds: input.documentIds,
         filters,
-        limit: mode === "hybrid" || collapse === "document" ? this.limits.LEXICAL_CANDIDATES : input.limit,
+        limit: lexLimit,
       });
       lexicalSearchMs = performance.now() - l0;
+    }
+
+    if (collapse === "document") {
+      const maxCandidates =
+        this.limits.MAX_COLLAPSE_CANDIDATES ??
+        Math.max(this.limits.VECTOR_CANDIDATES, this.limits.LEXICAL_CANDIDATES);
+      let distinctDocs = new Set([
+        ...vector.map((h) => h.documentId),
+        ...lexical.map((h) => h.documentId),
+      ]).size;
+      while (distinctDocs < input.limit) {
+        const canExpandVec =
+          (mode === "hybrid" || mode === "vector") &&
+          vec !== undefined &&
+          vector.length === vecLimit &&
+          vecLimit < maxCandidates;
+        const canExpandLex =
+          (mode === "hybrid" || mode === "lexical") &&
+          lexical.length === lexLimit &&
+          lexLimit < maxCandidates;
+        if (!canExpandVec && !canExpandLex) break;
+
+        if (canExpandVec && vec) {
+          vecLimit = Math.min(maxCandidates, Math.max(vecLimit * 2, input.limit * 3));
+          const v0 = performance.now();
+          vector = await this.vectors.search({
+            collectionIds: input.collectionIds,
+            documentIds: input.documentIds,
+            filters,
+            vector: vec,
+            limit: vecLimit,
+          });
+          vectorSearchMs += performance.now() - v0;
+        }
+        if (canExpandLex) {
+          lexLimit = Math.min(maxCandidates, Math.max(lexLimit * 2, input.limit * 3));
+          const l0 = performance.now();
+          lexical = await this.lexical.search({
+            query,
+            collectionIds: input.collectionIds,
+            documentIds: input.documentIds,
+            filters,
+            limit: lexLimit,
+          });
+          lexicalSearchMs += performance.now() - l0;
+        }
+        distinctDocs = new Set([
+          ...vector.map((h) => h.documentId),
+          ...lexical.map((h) => h.documentId),
+        ]).size;
+      }
     }
 
     const f0 = performance.now();
@@ -198,7 +254,11 @@ export class SearchService {
     const totalMs = performance.now() - t0;
     const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
     const blob = lexical.map((h) => h.content.toLowerCase()).join(" ");
-    const matchedTerms = qTokens.filter((t) => blob.includes(t.replace(/^"+|"+$/g, "")));
+    const matchedTerms = qTokens.filter((t) => {
+      const cleaned = t.replace(/^"+|"+$/g, "");
+      const term = cleaned.endsWith("*") && cleaned.length > 1 ? cleaned.slice(0, -1) : cleaned;
+      return term.length > 0 && blob.includes(term);
+    });
     if (input.explain) {
       return {
         hits: results,
