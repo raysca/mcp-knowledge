@@ -254,7 +254,11 @@ export class SearchService {
     const totalMs = performance.now() - t0;
     const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
     const blob = lexical.map((h) => h.content.toLowerCase()).join(" ");
-    const matchedTerms = qTokens.filter((t) => blob.includes(t.replace(/^"+|"+$/g, "")));
+    const matchedTerms = qTokens.filter((t) => {
+      const cleaned = t.replace(/^"+|"+$/g, "");
+      const term = cleaned.endsWith("*") && cleaned.length > 1 ? cleaned.slice(0, -1) : cleaned;
+      return term.length > 0 && blob.includes(term);
+    });
     if (input.explain) {
       return {
         hits: results,

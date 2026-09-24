@@ -95,6 +95,17 @@ describe("hybrid search", () => {
     expect(body.hits.some((h) => h.documentId === invoiceId)).toBe(true);
   });
 
+  test("explain matchedTerms includes prefix wildcard query tokens", async () => {
+    const res = await fetch(`${base}/api/v1/search/explain`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "INV-004*", mode: "lexical", limit: 8 }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { matchedTerms: string[] };
+    expect(body.matchedTerms).toContain("inv-004*");
+  });
+
   test("explain includes timings and fusion fields", async () => {
     const res = await fetch(`${base}/api/v1/search/explain`, {
       method: "POST",
@@ -245,6 +256,22 @@ describe("document collapse candidate pools", () => {
     const result = await adaptive.search({ query: "garden", mode: "hybrid", collapse: "document", limit: 3 });
     expect(result.hits.map((hit) => hit.documentId)).toEqual(["a", "b", "c"]);
     expect(seen.vectorLimits).toEqual([4, 9]);
+    expect(seen.lexicalLimits).toEqual([4, 9]);
+
+    // Test vector mode adaptive expansion
+    seen.vectorLimits.length = 0;
+    seen.lexicalLimits.length = 0;
+    const vecResult = await adaptive.search({ query: "garden", mode: "vector", collapse: "document", limit: 3 });
+    expect(vecResult.hits.map((hit) => hit.documentId)).toEqual(["a", "b", "c"]);
+    expect(seen.vectorLimits).toEqual([4, 9]);
+    expect(seen.lexicalLimits).toEqual([]);
+
+    // Test lexical mode adaptive expansion
+    seen.vectorLimits.length = 0;
+    seen.lexicalLimits.length = 0;
+    const lexResult = await adaptive.search({ query: "garden", mode: "lexical", collapse: "document", limit: 3 });
+    expect(lexResult.hits.map((hit) => hit.documentId)).toEqual(["a", "b", "c"]);
+    expect(seen.vectorLimits).toEqual([]);
     expect(seen.lexicalLimits).toEqual([4, 9]);
   });
 
