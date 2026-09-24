@@ -154,16 +154,6 @@ export class SearchService {
       const entry = byId.get(row.chunkId);
       const src = entry?.vec ?? entry?.lex;
       if (!src) continue;
-      let content = src.content;
-      if (collapse === "none" && expand.type !== "none") {
-        let all = revCache.get(src.revisionId);
-        if (!all) {
-          all = await this.repo.listRevisionChunks(src.revisionId);
-          revCache.set(src.revisionId, all);
-        }
-        const self = all.find((c) => c.id === src.chunkId);
-        if (self) content = expandContent(self, all, expand);
-      }
       const v = entry?.vec;
       const l = entry?.lex;
       hits.push({
@@ -171,7 +161,7 @@ export class SearchService {
         documentId: src.documentId,
         revisionId: src.revisionId,
         title: src.title,
-        content,
+        content: src.content,
         headingPath: src.headingPath,
         location: src.location,
         score: mode === "hybrid" ? row.fusionScore : src.score,
@@ -187,7 +177,7 @@ export class SearchService {
       });
     }
     const results = collapse === "document" ? collapseSearchHits(hits, input.limit) : hits;
-    if (collapse === "document" && expand.type !== "none") {
+    if (expand.type !== "none") {
       for (const hit of results) {
         let all = revCache.get(hit.revisionId);
         if (!all) {
