@@ -44,7 +44,7 @@ describe("LocalDirectorySource", () => {
   test("enumerates only ordinary visible files within the configured depth", async () => {
     const source = await LocalDirectorySource.create({ root, maxDepth: 0 });
     expect(await collect(source.candidates(new AbortController().signal))).toEqual([
-      { relativePath: "root.txt" },
+      { relativePath: "root.txt", metadata: { sourcePath: "root.txt" } },
     ]);
 
     const nested = await LocalDirectorySource.create({ root, maxDepth: 2 });

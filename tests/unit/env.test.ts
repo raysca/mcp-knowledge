@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { loadEnv } from "../../apps/server/src/config/env.ts";
 
+const CURSOR_SECRET = Buffer.alloc(32, 0x5a).toString("base64");
+
 describe("loadEnv", () => {
   test("defaults to the local profile", () => {
     const env = loadEnv({});
@@ -11,6 +13,7 @@ describe("loadEnv", () => {
     expect(env.MAX_UPLOAD_BYTES).toBe(67_108_864);
     expect(env.MAX_LIST_LIMIT).toBe(100);
     expect(env.DASHBOARD_PASSPHRASE).toBeUndefined();
+    expect(env.DOCUMENT_CURSOR_SECRET).toBeUndefined();
   });
 
   test("DASHBOARD_PASSPHRASE is unset by default - no network-position auth anywhere", () => {
@@ -25,9 +28,26 @@ describe("loadEnv", () => {
     );
   });
 
-  test("server profile refuses to boot without a passphrase", () => {
+  test("server profile requires an independent cursor secret and dashboard passphrase", () => {
     expect(() => loadEnv({ APP_PROFILE: "server" })).toThrow(/DASHBOARD_PASSPHRASE/);
-    expect(() => loadEnv({ APP_PROFILE: "server", DASHBOARD_PASSPHRASE: "x" })).not.toThrow();
+    expect(() => loadEnv({ APP_PROFILE: "server", DASHBOARD_PASSPHRASE: "x" }))
+      .toThrow(/DOCUMENT_CURSOR_SECRET/);
+    expect(() => loadEnv({ APP_PROFILE: "server", DASHBOARD_PASSPHRASE: "x", DOCUMENT_CURSOR_SECRET: CURSOR_SECRET }))
+      .not.toThrow();
+  });
+
+  test("cursor secret must be canonical base64 of exactly 32 bytes and errors never echo it", () => {
+    for (const invalid of ["abc", Buffer.alloc(31).toString("base64"), Buffer.alloc(33).toString("base64"), `${CURSOR_SECRET}!`]) {
+      try {
+        loadEnv({ DOCUMENT_CURSOR_SECRET: invalid });
+        throw new Error("expected invalid secret to be rejected");
+      } catch (error) {
+        expect((error as Error).message).toContain("DOCUMENT_CURSOR_SECRET");
+        expect((error as Error).message).not.toContain(invalid);
+      }
+    }
+    const decoded = loadEnv({ DOCUMENT_CURSOR_SECRET: CURSOR_SECRET }).DOCUMENT_CURSOR_SECRET;
+    expect(decoded).toEqual(Buffer.alloc(32, 0x5a));
   });
 
   test("rejects unknown APP_PROFILE", () => {
@@ -35,7 +55,7 @@ describe("loadEnv", () => {
   });
 
   test("server profile defaults to postgres and s3", () => {
-    const env = loadEnv({ APP_PROFILE: "server", DASHBOARD_PASSPHRASE: "x" });
+    const env = loadEnv({ APP_PROFILE: "server", DASHBOARD_PASSPHRASE: "x", DOCUMENT_CURSOR_SECRET: CURSOR_SECRET });
     expect(env.DATABASE_DRIVER).toBe("postgres");
     expect(env.STORAGE_DRIVER).toBe("s3");
     expect(env.WORKER_CONCURRENCY).toBe(4);

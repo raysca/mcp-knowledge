@@ -66,6 +66,31 @@ describe("evaluateQueries", () => {
     expect(evaluateQueries([result]).answerable.mrr).toBe(0.5);
   });
 
+  test("computes recall over distinct relevant documents and ranks after deduplication", () => {
+    const report = evaluateQueries([{
+      query: answerable("two related documents", ["a", "b", "b"]),
+      documentIds: ["other", "other", "a", "a", "x", "y", "z", "b"],
+    }]);
+    expect(report.answerable).toEqual({ queries: 1, recallAt5: 0.5, recallAt10: 1, mrr: 0.5 });
+  });
+
+  test("macro-averages recall and counts a document beyond rank ten as a miss at ten", () => {
+    const report = evaluateQueries([
+      { query: answerable("two targets", ["a", "b"]), documentIds: ["a"] },
+      { query: answerable("late target", ["z"]), documentIds: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "z"] },
+    ]);
+    expect(report.answerable.recallAt5).toBe(0.25);
+    expect(report.answerable.recallAt10).toBe(0.25);
+    expect(report.answerable.mrr).toBeCloseTo((1 + 1 / 11) / 2);
+  });
+
+  test("rejects contradictory relevance labels rather than reporting misleading metrics", () => {
+    expect(() => evaluateQueries([{ query: answerable("unlabelled", []), documentIds: [] }])).toThrow();
+    expect(() => evaluateQueries([{
+      query: { query: "contradictory", relevant: ["a"], category: "no-answer" }, documentIds: [],
+    }])).toThrow();
+  });
+
   test("excludes no-answer queries from answerable metrics and reports returned hits", () => {
     const noAnswer: EvaluationQuery = {
       query: "What is the office Wi-Fi password?",
@@ -83,7 +108,16 @@ describe("evaluateQueries", () => {
       queries: 2,
       queriesWithHits: 1,
       retrievalRate: 0.5,
+      falsePositiveRate: 0.5,
+      policy: "any-returned-document",
     });
+  });
+
+  test("preserves empty report and latency shapes", () => {
+    const report = evaluateQueries([]);
+    expect(report.answerable).toEqual({ queries: 0, recallAt5: 0, recallAt10: 0, mrr: 0 });
+    expect(report.noAnswer.falsePositiveRate).toBe(0);
+    expect(report.latencyMs).toEqual({ p50: null, p95: null });
   });
 
   test("reports sorted p50 and p95 latency using ceil(p*n)-1", () => {

@@ -17,8 +17,11 @@ is no network-position exception anywhere in auth (no loopback bypass, no
 "trust this proxy" special case): a passphrase is checked the same way for
 every caller once it's set, which is what makes it safe to put a real reverse
 proxy in front at all. `APP_PROFILE=server` enforces this by refusing to boot
-without `DASHBOARD_PASSPHRASE` set; the local profile trusts you to set it
-yourself before widening exposure.
+without `DASHBOARD_PASSPHRASE` set; it also requires an independent
+`DOCUMENT_CURSOR_SECRET` (base64-encoded 32 random bytes) for document-page
+cursor signing. Never derive that secret from the dashboard passphrase. The
+local profile trusts you to set a passphrase before widening exposure and
+uses a random process cursor key if no cursor secret is configured.
 
 ## API keys and sessions
 

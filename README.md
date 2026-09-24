@@ -163,6 +163,122 @@ The MCP surface is intentionally read-only:
 
 Use the dashboard or REST API to upload and manage documents.
 
+`get_document` returns the existing document metadata plus a `body` string
+containing a complete JSON normalized document. The body is capped by
+`MAX_MCP_DOCUMENT_CHARS` (default `32000`) and contains whole blocks only. A
+small document fits in one response. For a larger document, pass the returned
+`nextBlockCursor` as `block_cursor` until no cursor remains:
+
+```json
+{
+  "name": "get_document",
+  "arguments": {
+    "document_id": "doc_...",
+    "block_cursor": "cursor-from-previous-response",
+    "block_limit": 50,
+    "headings": ["Core Product"]
+  }
+}
+```
+
+`block_cursor`, `block_limit`, and `headings` are optional. `block_limit` is
+bounded by `MAX_LIST_LIMIT` when supplied. Without it, each page includes as
+many whole blocks as fit within the character ceiling. `headings` selects
+complete sections by heading name before paging. Repeat the same `headings`
+on each continuation request. Each response includes `truncated`,
+`returnedBlocks`, and `totalBlocks`. Parse `body` on each page and append its
+`blocks` in order. A block or document envelope that cannot fit within the
+character ceiling returns `DOCUMENT_BLOCK_TOO_LARGE`. A cursor for another
+document, revision, or heading selection returns `CURSOR_STALE`; a malformed
+or changed cursor returns `INVALID_CURSOR`.
+
+### Search context controls
+
+`search_documents` accepts collection and document ID filters, structured
+metadata filters, and bounded context expansion. For example, this request
+filters to a collection and a metadata value, then includes one neighboring
+chunk on each side of every match:
+
+```json
+{
+  "name": "search_documents",
+  "arguments": {
+    "query": "winter gloves",
+    "collection_ids": ["collection_handbooks"],
+    "filters": {"department": "outdoor"},
+    "expand": {"type": "neighbors", "before": 1, "after": 1}
+  }
+}
+```
+
+MCP expansion supports `none`, `neighbors`, and `section`, with `before` and
+`after` counts from 0 to 5. `expand.type: "document"` remains REST-only; MCP
+rejects it because returning an entire document can produce an unexpectedly
+large result. To retrieve context around a known chunk, call `get_chunk`:
+
+```json
+{
+  "name": "get_chunk",
+  "arguments": {"chunk_id": "chunk_abc123", "before": 1, "after": 2}
+}
+```
+
+Invalid arguments and metadata filters return MCP tool errors (`isError: true`)
+whose text retains stable public codes, such as `INVALID_TOOL_ARGUMENTS` and
+`INVALID_FILTER`.
+
+### Distinct-document search
+
+MCP `search_documents` and REST `POST /api/v1/search` accept
+`"collapse": "document"` when the caller wants to choose documents:
+
+```json
+{
+  "name": "search_documents",
+  "arguments": {
+    "query": "um how do I correct the invoice VAT amount please",
+    "collapse": "document",
+    "limit": 8
+  }
+}
+```
+
+Omitting `collapse` (or setting it to `"none"`) retains chunk results.
+Document mode groups the normal bounded candidate pools after chunk-level
+ranking. Each document keeps its best chunk, with document ID breaking ties.
+REST hits expose the document rank as `ranking.finalRank` and preserve the
+best chunk's pre-collapse position as `ranking.chunkRank`. When available,
+vector/lexical ranks and scores and the fusion score remain in REST's
+`ranking` object and describe the selected chunk.
+
+MCP `search_documents` hits expose the document rank as the flat `rank` field
+and the best chunk's pre-collapse position as the flat `chunkRank` field.
+MCP does not expose the nested `ranking` object or its vector/lexical ranks,
+scores, or fusion score.
+
+Both APIs include `matchingChunkCount`, which counts that document's fused
+candidates, and `matchedHeadings`, which lists their unique
+headings. These summaries describe retrieved candidates, not all matches in
+the corpus. A document-dominated candidate pool may return fewer than `limit`
+distinct documents; there are no unbounded follow-up searches.
+
+Lexical retrieval first requires every original query token (`AND`). If that
+pass leaves candidate slots, a second pass drops a small static English
+stop-word set and matches eligible terms with `OR`. Three or more distinct
+eligible terms require at least two matches; two terms require at least one.
+Fewer than two eligible terms never enter fallback, so a standalone SKU-like
+identifier keeps all-terms matching. Exact-pass hits stay ahead of fallback
+hits in lexical rank; hybrid fusion also considers vector rank. Title,
+heading path, and content use FTS5 BM25 weights of 8, 4, and 1 respectively.
+Fallback failures preserve available exact/vector results. This is retrieval,
+not a guarantee that a returned document answers the question.
+
+These additions are currently unreleased. Consumers should feature-detect
+`collapse` in MCP `tools/list`, enable document mode explicitly, observe
+traces, and retain chunk behavior against older images. Record the deployed
+image digest so retrieval changes can roll back independently. The default
+remains chunk mode; changing it is reserved for a major version.
+
 If authentication is enabled, include a generated API key:
 
 ```json
@@ -273,17 +389,127 @@ URL ingestion is available through `POST /api/v1/documents/from-url`.
 Loopback, private, link-local, and cloud-metadata targets are blocked,
 including through redirects.
 
+### Add metadata during a directory scan
+
+Put `.mcp-knowledge-manifest.json` at the root of `INGEST_DATA_DIR`. Only that
+root manifest is loaded; files with the same name anywhere in the tree are
+excluded from ingestion. For example:
+
+```json
+{
+  "rules": [
+    { "glob": "guides/**/*.md", "metadata": { "documentType": "guide", "audience": "general" } },
+    { "glob": "guides/safety/*.md", "metadata": { "audience": "specialist" } }
+  ]
+}
+```
+
+Rules match paths relative to the scan root, in order. Matching metadata
+objects are merged shallowly, so the later rule overrides `audience` for
+matching safety guides. The safe glob subset allows relative, forward-slash
+paths with `*`, `**`, and `?`; absolute paths, `.`/`..` segments, and
+brace, bracket, or extglob expansion are rejected. The manifest must be a
+regular UTF-8 JSON file no larger than 1 MiB, with only a `rules` array;
+each rule contains only `glob` and `metadata`. Invalid manifests fail the
+startup scan before files are ingested.
+
+Restart the service after adding or changing the manifest. A scan compares
+manifest bytes as well as file content: changing matching metadata replaces
+the scanner-owned document with a new document ID, even when its file bytes
+are unchanged. The scanner always sets `sourcePath` to the actual relative
+file path, including after a rename; a manifest cannot override it. Manifest
+metadata is stored for direct scanner-owned document imports. It does not
+assign metadata to individual members extracted from a scanned ZIP.
+
+### List the document catalog
+
+`GET /api/v1/document-catalog` and the MCP `list_document_catalog` tool expose
+the same lightweight catalog. They require the usual authentication when a
+passphrase is configured; an API key with `read` scope is sufficient. The
+default selects live `ready` documents and returns only `id`, `revisionId`,
+`title`, `sourcePath`, and `metadata`. The allowed projection is fixed to those
+five fields plus `status` and `updatedAt`; fields such as storage keys and
+hashes cannot be requested. `status` accepts `pending`, `processing`, `ready`,
+`failed`, or `deleted`. Selecting `deleted` retrieves soft-deleted documents, while
+other statuses select live documents. `limit` defaults to 50 (or
+`MAX_LIST_LIMIT` if lower) and cannot exceed `MAX_LIST_LIMIT`.
+
+For REST, `fields` is a comma-separated list and `filters` is a JSON-encoded
+query parameter. This example filters metadata, narrows to a collection, and
+requests a fixed projection:
+
+```bash
+curl -sS -G 'http://127.0.0.1:3000/api/v1/document-catalog' \
+  -H 'Authorization: Bearer <read-api-key>' \
+  --data-urlencode 'collectionId=collection_guides' \
+  --data-urlencode 'filters={"documentType":"guide","year":{"gte":2025}}' \
+  --data-urlencode 'fields=id,title,sourcePath,metadata' \
+  --data-urlencode 'limit=50'
+```
+
+Use the corresponding MCP tool arguments for the same request:
+
+```json
+{
+  "name": "list_document_catalog",
+  "arguments": {
+    "collection_id": "collection_guides",
+    "filters": { "documentType": "guide", "year": { "gte": 2025 } },
+    "fields": ["id", "title", "sourcePath", "metadata"],
+    "limit": 50
+  }
+}
+```
+
+Filter fields can be metadata keys or dotted paths. A scalar value means
+equality; operator objects support `eq`, `neq`, `in`, `exists`, `gte`, and
+`lte`. REST uses `collectionId` and `ifCorpusVersion`; MCP uses
+`collection_id` and `if_corpus_version`. Both responses use `corpusVersion`,
+`items`, and optional `nextCursor`, with the same camelCase item fields.
+
+For a following page, send the returned cursor as REST `cursor=<nextCursor>`
+or MCP `{ "name": "list_document_catalog", "arguments": { "cursor": "<nextCursor>" } }`,
+along with the original query and projection parameters. For a later refresh
+of the completed REST query above, use the same parameters and add
+`ifCorpusVersion=generation:123` (replacing `123` with the saved generation).
+For MCP, add `"if_corpus_version": "generation:123"` to the same arguments.
+
+Follow `nextCursor` with the **same status, collection, filters, fields, and limit**
+until it is absent. Do not send `ifCorpusVersion` or `if_corpus_version` while
+paging: an equal version returns `{ "corpusVersion": "generation:…",
+"unchanged": true }` without a page, even if a cursor was supplied. Catalog
+pages are live reads rather than a frozen snapshot. Compare every page's
+`corpusVersion` with the first page; if it changes, discard the collected
+pages and restart from the first page.
+
+After finishing a query, save its `corpusVersion`. On a later refresh of that
+**same completed query and projection**, send `ifCorpusVersion` (REST) or
+`if_corpus_version` (MCP) with the saved version. An unchanged corpus returns
+only `corpusVersion` and `unchanged: true`; a changed corpus returns the first
+page, which you can continue without a conditional parameter. Version changes
+can reflect changes outside your filter, so compare the returned items. The
+catalog version is separate from document-page cursors; server deployments
+still need an independent `DOCUMENT_CURSOR_SECRET` as described in
+[Exposing beyond loopback](#exposing-beyond-loopback).
+
 ## Exposing beyond loopback
 
 Set `DASHBOARD_PASSPHRASE` before publishing the service on a LAN, through a
-reverse proxy, or through a tunnel:
+reverse proxy, or through a tunnel. Generate an independent cursor secret with
+`openssl rand -base64 32` and set `DOCUMENT_CURSOR_SECRET` to that value.
+`APP_PROFILE=server` requires both values at startup. The cursor secret must
+decode to exactly 32 bytes; keep the same secret for replacement containers
+so document-page cursors remain valid. Local mode can omit it, in which case
+cursors expire on restart.
 
 ```bash
+export DOCUMENT_CURSOR_SECRET="$(openssl rand -base64 32)"
 docker run -d \
   --name mcp-knowledge \
   --restart unless-stopped \
   -p 3000:3000 \
   -e DASHBOARD_PASSPHRASE='replace-with-a-long-random-passphrase' \
+  -e DOCUMENT_CURSOR_SECRET \
   -v mcp-knowledge-data:/app/data \
   ghcr.io/raysca/mcp-knowledge:0.1
 ```
@@ -355,6 +581,44 @@ bun test
 
 `bun run release:check` runs the release gate: type checking, tests, CSS build,
 Compose validation, both-platform Docker smoke, and scale-report validation.
+
+### Retrieval regression evaluation
+
+Run `bun test tests/retrieval/recall.test.ts` to ingest the 15 compact generic
+fixtures into a fresh temporary database and print JSON reports. The original
+22-query chunk-mode regression and its committed floors remain in place.
+The additional `magic-voice-queries.json` set contains 18 invented,
+anonymized, production-shaped utterances: filler-heavy project questions,
+confusable runbooks and invoices, exact identifier queries, and no-answer
+speech. All labels are grounded in existing fixtures. Invoice, returns, and
+expense codes stand in for SKU/model-shaped identifiers; there is no real
+product catalog, customer audio, or production query log in this evaluation.
+
+Both hybrid and lexical runs request `collapse: "document"`, `limit: 10`,
+check unique document IDs and structural provenance, and score 14 answerable
+queries. Recall@5/@10 is the per-query fraction of relevant distinct
+documents retrieved, averaged across queries; MRR uses the first relevant
+distinct-document rank. Duplicate IDs cannot inflate recall or consume rank.
+Two queries require both invoice documents, exercising partial recall.
+
+The no-answer policy is deliberately strict: **any returned document is a
+false positive**, with no score cutoff or downstream answer-generation step.
+The four no-answer cases include unrelated requests and questions that share
+words with a fixture but ask for facts it does not contain. Hybrid retrieval
+has no abstention threshold and returned hits for all four (100% false-positive
+rate); lexical retrieval returned hits for the two related cases (50%). The
+lexical regression ceiling is 50%; hybrid false positives are reported as a
+known limitation, not claimed as an abstention gate. The existing
+`noAnswer.retrievalRate` remains available alongside `falsePositiveRate` and
+the explicit policy name.
+
+Three fresh-corpus runs established recall@5, recall@10, and MRR floors of
+1.0 for both modes; measurements are recorded in
+`tests/retrieval/evaluation-runs.json`. Reports preserve `latencyMs.p50` and
+`latencyMs.p95` (nearest-rank percentiles of query HTTP timings after ingestion).
+Latency is reported, not gated against machine-specific millisecond limits.
+This small fixture suite is regression evidence only: it does not establish
+production ASR accuracy, catalog-scale retrieval quality, or safe abstention.
 
 ## License
 

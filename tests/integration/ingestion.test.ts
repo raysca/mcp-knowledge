@@ -57,8 +57,10 @@ describe("ingestion", () => {
 
     const normalized = await fetch(`${base}/api/v1/documents/${body.id}/normalized`);
     expect(normalized.status).toBe(200);
-    const n = (await normalized.json()) as { blocks: unknown[] };
-    expect(n.blocks.length).toBeGreaterThan(0);
+    const page = (await normalized.json()) as { blocks: unknown[]; truncated: boolean; returnedBlocks: number };
+    expect(page.blocks.length).toBeGreaterThan(0);
+    expect(page.returnedBlocks).toBe(page.blocks.length);
+    expect(page.truncated).toBe(false);
   });
 
   test("docx fixture is parsed via anydoc subprocess", async () => {

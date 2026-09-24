@@ -1,20 +1,24 @@
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   ApiKey,
   ArchiveImport,
   ArchiveImportEntry,
+  CatalogField,
+  CatalogItem,
+  CatalogPage,
   Collection,
   Document,
   DocumentRevision,
   IngestionJob,
   KnowledgeRepository,
   ListDocumentsQuery,
+  ListDocumentCatalogQuery,
   SourceFileOutcome,
   SourceFileRecord,
   SourceScanCycle,
   StoredChunk,
 } from "@mcp-knowledge/core";
-import { newId } from "@mcp-knowledge/core";
+import { AppError, newId, parseFilters } from "@mcp-knowledge/core";
 import { createClient, type Client } from "@libsql/client";
 import { createLibsqlDb } from "./libsql.ts";
 import {
@@ -42,6 +46,22 @@ function decodeCursor(cursor: string): { createdAt: number; id: string } {
   const raw = Buffer.from(cursor, "base64url").toString("utf8");
   const idx = raw.indexOf(":");
   return { createdAt: Number(raw.slice(0, idx)), id: raw.slice(idx + 1) };
+}
+
+const catalogFields: CatalogField[] = ["id", "revisionId", "title", "sourcePath", "metadata", "status", "updatedAt"];
+
+function decodeCatalogCursor(cursor: string): { createdAt: number; id: string } {
+  if (typeof cursor !== "string" || cursor.length > 4096 || !/^[A-Za-z0-9_-]+$/.test(cursor)) {
+    throw new AppError("INVALID_CURSOR", "The catalog cursor is invalid.");
+  }
+  const raw = Buffer.from(cursor, "base64url").toString("utf8");
+  const match = /^(0|[1-9]\d*):([^\s:]+)$/.exec(raw);
+  const createdAt = Number(match?.[1]);
+  if (!match || Buffer.from(raw).toString("base64url") !== cursor || !Number.isSafeInteger(createdAt)
+    || !Number.isFinite(new Date(createdAt).getTime())) {
+    throw new AppError("INVALID_CURSOR", "The catalog cursor is invalid.");
+  }
+  return { createdAt, id: match[2]! };
 }
 
 function toCollection(row: typeof collections.$inferSelect): Collection {
@@ -267,6 +287,86 @@ class LibSqlKnowledgeRepository implements KnowledgeRepository {
         rows.length > q.limit && last
           ? encodeCursor(last.createdAt, last.id)
           : undefined,
+    };
+  }
+
+  async getCorpusGeneration(): Promise<number> {
+    const result = await this.db.get<{ generation: number }>(sql`SELECT generation FROM corpus_state WHERE id = 1`);
+    return Number(result!.generation);
+  }
+
+  async listDocumentCatalog(q: ListDocumentCatalogQuery): Promise<CatalogPage> {
+    if (!Number.isSafeInteger(q.limit) || q.limit < 1 || q.limit >= Number.MAX_SAFE_INTEGER) {
+      throw new AppError("INVALID_ARGUMENT", "Catalog limit must be a positive integer.");
+    }
+    const status = q.status ?? "ready";
+    if (!["pending", "processing", "ready", "failed", "deleted"].includes(status)
+      || (q.collectionId !== undefined && (typeof q.collectionId !== "string" || !q.collectionId))) {
+      throw new AppError("INVALID_ARGUMENT", "Catalog status or collection is invalid.");
+    }
+    const fields = q.fields ?? catalogFields.slice(0, 5);
+    if (!Array.isArray(fields) || fields.length === 0 || fields.some((field) => !catalogFields.includes(field))) {
+      throw new AppError("INVALID_PROJECTION", "Catalog fields must come from the fixed projection.");
+    }
+    const predicates = [
+      status === "deleted" ? isNotNull(documents.deletedAt) : isNull(documents.deletedAt),
+      eq(documents.status, status),
+    ];
+    if (q.collectionId !== undefined) predicates.push(eq(documents.collectionId, q.collectionId));
+    if (q.cursor !== undefined) {
+      // A cursor is a seek boundary, so removing its anchor cannot cause repeats or a restart.
+      const { createdAt, id } = decodeCatalogCursor(q.cursor);
+      predicates.push(or(lt(documents.createdAt, new Date(createdAt)),
+        and(eq(documents.createdAt, new Date(createdAt)), lt(documents.id, id)))!);
+    }
+    if (q.filters !== undefined && !Array.isArray(q.filters)) {
+      throw new AppError("INVALID_FILTER", "Catalog filters must be parsed metadata clauses.");
+    }
+    for (const clause of q.filters ?? []) {
+      // Revalidate the port boundary; metadata paths and values always remain bound parameters.
+      if (!clause || typeof clause.field !== "string" || typeof clause.op !== "string") {
+        throw new AppError("INVALID_FILTER", "Invalid catalog filter clause.");
+      }
+      parseFilters({ [clause.field]: { [clause.op]: clause.value } });
+      const value = sql`json_extract(${documents.metadata}, ${`$.${clause.field}`})`;
+      const isJsonNull = sql`json_type(${documents.metadata}, ${`$.${clause.field}`}) = 'null'`;
+      const bind = (v: unknown) => typeof v === "boolean" ? Number(v) : v;
+      switch (clause.op) {
+        case "eq": predicates.push(clause.value === null ? isJsonNull : sql`${value} = ${bind(clause.value)}`); break;
+        case "neq": predicates.push(sql`${value} IS NOT ${bind(clause.value)}`); break;
+        case "exists": predicates.push(clause.value === false ? sql`${value} IS NULL` : sql`${value} IS NOT NULL`); break;
+        case "gte": predicates.push(sql`CAST(${value} AS REAL) >= ${clause.value}`); break;
+        case "lte": predicates.push(sql`CAST(${value} AS REAL) <= ${clause.value}`); break;
+        case "in": {
+          const values = clause.value as unknown[];
+          const nonNull = values.filter((v) => v !== null);
+          const membership = sql`${value} IN (${sql.join(nonNull.map((v) => sql`${bind(v)}`), sql`, `)})`;
+          predicates.push(nonNull.length === 0 ? isJsonNull
+            : values.includes(null) ? or(membership, isJsonNull)! : membership);
+          break;
+        }
+      }
+    }
+    // Select only safe catalog columns, with the two extra values needed to form a seek cursor.
+    const rows = await this.db.select({
+      id: documents.id, revisionId: documents.currentRevisionId, title: documents.title,
+      originalFilename: documents.originalFilename, metadata: documents.metadata,
+      status: documents.status, updatedAt: documents.updatedAt, createdAt: documents.createdAt,
+    }).from(documents).where(and(...predicates))
+      .orderBy(desc(documents.createdAt), desc(documents.id)).limit(q.limit + 1);
+    const page = rows.slice(0, q.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => {
+        const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+        const item: CatalogItem = {
+          id: row.id, revisionId: row.revisionId ?? undefined, title: row.title ?? undefined,
+          sourcePath: typeof metadata.sourcePath === "string" ? metadata.sourcePath : row.originalFilename,
+          metadata, status: row.status as Document["status"], updatedAt: row.updatedAt,
+        };
+        return Object.fromEntries(fields.map((field) => [field, item[field]]));
+      }),
+      nextCursor: rows.length > q.limit && last ? encodeCursor(last.createdAt, last.id) : undefined,
     };
   }
 
@@ -868,6 +968,12 @@ LIMIT 1`,
 SET status = 'deleted', deleted_at = ?, updated_at = ?
 WHERE id = ?`,
           args: [now, now, input.replaceDocumentId],
+        });
+        // Keep historical chunks, but remove their vectors before the replacement
+        // commits so retired documents cannot consume ANN candidate slots.
+        await this.client.execute({
+          sql: "UPDATE document_chunks SET embedding = NULL WHERE document_id = ?",
+          args: [input.replaceDocumentId],
         });
         if (replacementRelativePath !== input.relativePath) {
           await this.client.execute({

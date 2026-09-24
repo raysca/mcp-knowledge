@@ -13,6 +13,60 @@ Any other extension is rejected before parsing (`DOCUMENT_UNSUPPORTED_FORMAT`).
 Content type is sniffed from file bytes/extension for storage, not used to
 widen or narrow the allow list.
 
+## Startup ingestion metadata
+
+An optional `.mcp-knowledge-manifest.json` in the root of `INGEST_DATA_DIR`
+assigns explicit metadata to ordinary scanned documents. For example:
+
+```json
+{
+  "rules": [
+    { "glob": "articles/**/*.md", "metadata": { "documentType": "project_guide", "audience": "staff" } },
+    { "glob": "articles/reference/*.md", "metadata": { "documentType": "reference", "reviewed": true } }
+  ]
+}
+```
+
+The top level contains only `rules`; each rule contains only `glob` and a
+JSON-object `metadata`. Rules match case-sensitive relative paths with
+forward slashes. `*` and `?` match within a path segment; `**` as an entire
+segment matches any number of directories, including zero. Absolute paths,
+drive prefixes, backslashes, empty/`.`/`..` segments, control characters,
+braces, character classes, extglobs, and negation are rejected. This is a
+generic path match: no document type is inferred from a filename.
+
+Matching rules apply in file order. Later rules shallowly replace earlier
+values with the same key, including entire objects and arrays. Strings,
+finite numbers, booleans, arrays, objects, and `null` are preserved. Metadata
+nesting is limited to 64 levels; `__proto__`, `constructor`, and `prototype`
+keys are rejected at every level. Every scanned document additionally gets
+`metadata.sourcePath`, the canonical relative path. This system field takes
+precedence over any manifest value and is exposed as the catalog's
+`sourcePath`.
+
+The manifest must be a regular, non-symlink UTF-8 JSON file no larger than
+1 MiB. Invalid manifests fail the startup scan before document imports.
+Only the root manifest is loaded; manifest files in subdirectories are not
+loaded or ingested. The source scanner never ingests or archives the manifest
+itself. Rules apply to ordinary source files, not members of ZIP archives;
+archive extraction continues to use its existing upload metadata behavior.
+
+Manifest bytes participate in the source configuration fingerprint, so an
+interrupted scan starts a fresh cycle after a manifest change. Restart the
+server to apply edits. Existing owned documents whose effective metadata
+changes are atomically replaced and re-ingested, even when their bytes are
+unchanged: the old ID is retired and a new document/revision/job is created.
+The ready catalog reflects the change when ingestion completes. Removing a
+manifest removes its metadata on the next scan, while retaining `sourcePath`.
+Unchanged effective metadata does not queue another job. Existing scanned
+documents without `sourcePath` are refreshed once when adopting this behavior.
+Content duplicates remain duplicates and cannot overwrite another document's
+metadata. Renames reapply rules to the new path and update `sourcePath`.
+
+Chunk IDs are deterministic within one revision and distinct between
+revisions, including replacements with identical bytes. Chunk content,
+boundaries, and content hashes are unchanged.
+
 ## Zip archives
 
 Uploading a `.zip` does not create one document — the server extracts every

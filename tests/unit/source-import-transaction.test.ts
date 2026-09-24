@@ -72,6 +72,17 @@ async function createOwnedDocument(
   });
 }
 
+async function seedEmbeddedChunks(repo: Repository, client: Client, documentId: string): Promise<string> {
+  const vector = JSON.stringify(Array.from({ length: 384 }, (_, index) => index === 0 ? 1 : 0));
+  await repo.replaceChunks(`rev_${documentId}`, [0, 1].map((sequence) => ({
+    id: `chk_${documentId}_${sequence}`, documentId, revisionId: `rev_${documentId}`, sequence,
+    content: `preserved content ${sequence}`, embeddingText: `preserved content ${sequence}`,
+    headingPath: [], tokenCount: 3, metadata: {}, contentHash: `hash-${sequence}`, createdAt: new Date(),
+  })));
+  await client.execute({ sql: "UPDATE document_chunks SET embedding = vector32(?) WHERE document_id = ?", args: [vector, documentId] });
+  return vector;
+}
+
 describe("atomic source document commit", () => {
   test("creates one processing document, revision, queued job, and owned source row", async () => {
     await withRepository(async (repo) => {
@@ -133,13 +144,14 @@ describe("atomic source document commit", () => {
   });
 
   test("replaces a same-hash owned document across a rename", async () => {
-    await withRepository(async (repo) => {
+    await withRepository(async (repo, client) => {
       await createOwnedDocument(repo, {
         sourceId: "source-a",
         relativePath: "old-name.md",
         documentId: "doc_old",
         sha256: "sha-same",
       });
+      await seedEmbeddedChunks(repo, client, "doc_old");
 
       const result = await repo.commitSourceImport({
         mode: "import",
@@ -175,6 +187,12 @@ describe("atomic source document commit", () => {
         }),
       );
       expect(await repo.listJobs()).toHaveLength(1);
+      const history = await client.execute("SELECT content, embedding FROM document_chunks WHERE document_id = 'doc_old' ORDER BY sequence");
+      expect(history.rows.map((row) => ({ content: row.content, embedding: row.embedding }))).toEqual([
+        { content: "preserved content 0", embedding: null },
+        { content: "preserved content 1", embedding: null },
+      ]);
+      expect(await repo.getRevision("rev_doc_old")).not.toBeNull();
     });
   });
 
@@ -375,6 +393,7 @@ describe("atomic source document commit", () => {
         documentId: "doc_old",
         sha256: "sha-old",
       });
+      const originalVector = await seedEmbeddedChunks(repo, client, "doc_old");
       await client.execute(`CREATE TRIGGER fail_source_revision
 BEFORE INSERT ON document_revisions
 WHEN NEW.id = 'rev_fail'
@@ -412,6 +431,14 @@ END`);
         "SELECT COUNT(*) AS n FROM documents WHERE id = 'doc_fail'",
       );
       expect(Number(inserted.rows[0]!.n)).toBe(0);
+      const restored = await client.execute("SELECT vector_extract(embedding) AS vector FROM document_chunks WHERE document_id = 'doc_old' ORDER BY sequence");
+      expect(restored.rows.map((row) => row.vector)).toEqual([originalVector, originalVector]);
+      const searchable = await client.execute({
+        sql: "SELECT c.document_id FROM vector_top_k('document_chunks_embedding_idx', vector32(?), 1) v JOIN document_chunks c ON c.rowid = v.id",
+        args: [originalVector],
+      });
+      expect(searchable.rows.map((row) => row.document_id)).toEqual(["doc_old"]);
+      expect(Number((await client.execute("SELECT COUNT(*) AS n FROM document_chunks_fts WHERE chunk_id LIKE 'chk_doc_old_%'")).rows[0]!.n)).toBe(2);
     });
   });
 

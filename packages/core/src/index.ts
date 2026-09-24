@@ -30,6 +30,15 @@ export {
 } from "./services/source-import-service.ts";
 export { assertSafeUrl, isBlockedIp } from "./ssrf.ts";
 export { DocumentService, originalStorageKey } from "./services/document-service.ts";
+export { DocumentCatalogService, CATALOG_FIELDS, type CatalogInput, type CatalogResponse } from "./services/document-catalog-service.ts";
+export {
+  pageNormalizedDocument,
+  encodeBlockCursor,
+  decodeBlockCursor,
+  type BlockCursor,
+  type DocumentPageInput,
+  type DocumentPageResult,
+} from "./services/document-page.ts";
 export {
   ArchiveImportService,
   archiveStagingKey,
@@ -46,6 +55,7 @@ export type {
   JobStatus,
   StoredChunk,
   SearchHit,
+  CollapsedSearchHit,
   ApiKey,
 } from "./domain/types.ts";
 export type {
@@ -66,6 +76,9 @@ export type {
 } from "./domain/archive.ts";
 export type {
   BlobStore,
+  CatalogField,
+  CatalogItem,
+  CatalogPage,
   EmbeddedChunk,
   Embedder,
   FilterClause,
@@ -73,6 +86,7 @@ export type {
   LexicalHit,
   LexicalIndex,
   ListDocumentsQuery,
+  ListDocumentCatalogQuery,
   VectorHit,
   VectorIndex,
 } from "./ports.ts";
@@ -81,3 +95,4 @@ export { chunkBlocks } from "./chunking/chunk.ts";
 export { loadWordPiece } from "./chunking/wordpiece.ts";
 export { compileFilters, parseFilters, placeholders } from "./retrieval/filters.ts";
 export { hybridRrf } from "./retrieval/rrf.ts";
+export { collapseSearchHits } from "./retrieval/collapse.ts";

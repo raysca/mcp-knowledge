@@ -32,6 +32,29 @@ export type ListDocumentsQuery = {
   limit: number;
 };
 
+export type CatalogField = "id" | "revisionId" | "title" | "sourcePath" | "metadata" | "status" | "updatedAt";
+
+export type CatalogItem = Partial<{
+  id: string;
+  revisionId: string;
+  title: string;
+  sourcePath: string;
+  metadata: Record<string, unknown>;
+  status: Document["status"];
+  updatedAt: Date;
+}>;
+
+export type ListDocumentCatalogQuery = {
+  collectionId?: string;
+  status?: Document["status"];
+  cursor?: string;
+  limit: number;
+  fields?: CatalogField[];
+  filters?: FilterClause[];
+};
+
+export type CatalogPage = { items: CatalogItem[]; nextCursor?: string };
+
 export type KnowledgeRepository = {
   createCollection(input: { name: string; description?: string }): Promise<Collection>;
   listCollections(): Promise<Collection[]>;
@@ -57,6 +80,8 @@ export type KnowledgeRepository = {
   getDocument(id: string): Promise<Document | null>;
   getLiveDocumentBySha256(sha256: string): Promise<Document | null>;
   listDocuments(q: ListDocumentsQuery): Promise<{ items: Document[]; nextCursor?: string }>;
+  getCorpusGeneration(): Promise<number>;
+  listDocumentCatalog(q: ListDocumentCatalogQuery): Promise<CatalogPage>;
   getRevisionStorageKey(documentId: string): Promise<string | null>;
   getRevision(revisionId: string): Promise<DocumentRevision | null>;
   setDocumentStatus(
@@ -193,6 +218,7 @@ export type LexicalHit = {
   score: number;
   lexicalRank: number;
   lexicalScore: number;
+  lexicalMatchMode?: "exact" | "fallback";
 };
 
 export type FilterClause = {

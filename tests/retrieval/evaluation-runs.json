@@ -19,5 +19,33 @@
       "latencyMs": { "p50": 1.9101670000000013, "p95": 3.0587079999995694 }
     }
   ],
-  "floor": { "recallAt5": 1, "recallAt10": 1, "mrr": 1 }
+  "floor": { "recallAt5": 1, "recallAt10": 1, "mrr": 1 },
+  "magicVoice": {
+    "command": "bun test tests/retrieval/recall.test.ts",
+    "recordedAt": "2026-09-23",
+    "runtime": "Bun 1.4.2, macOS arm64",
+    "corpus": "15 unchanged fixtures in tests/retrieval/corpus",
+    "queries": "magic-voice-queries.json: 14 answerable, 4 no-answer",
+    "collapse": "document",
+    "limit": 10,
+    "noAnswerPolicy": "any-returned-document",
+    "hybrid": {
+      "runs": [
+        { "recallAt5": 1, "recallAt10": 1, "mrr": 1, "falsePositiveRate": 1, "latencyMs": { "p50": 3.93175, "p95": 4.656167 } },
+        { "recallAt5": 1, "recallAt10": 1, "mrr": 1, "falsePositiveRate": 1, "latencyMs": { "p50": 4.8665, "p95": 6.522416 } },
+        { "recallAt5": 1, "recallAt10": 1, "mrr": 1, "falsePositiveRate": 1, "latencyMs": { "p50": 3.742417, "p95": 6.705916 } }
+      ],
+      "floor": { "recallAt5": 1, "recallAt10": 1, "mrr": 1 },
+      "noAnswerNote": "Report only: hybrid retrieval has no abstention threshold."
+    },
+    "lexical": {
+      "runs": [
+        { "recallAt5": 1, "recallAt10": 1, "mrr": 1, "falsePositiveRate": 0.5, "latencyMs": { "p50": 0.798042, "p95": 1.245708 } },
+        { "recallAt5": 1, "recallAt10": 1, "mrr": 1, "falsePositiveRate": 0.5, "latencyMs": { "p50": 1.019583, "p95": 2.196916 } },
+        { "recallAt5": 1, "recallAt10": 1, "mrr": 1, "falsePositiveRate": 0.5, "latencyMs": { "p50": 0.795041, "p95": 1.27375 } }
+      ],
+      "floor": { "recallAt5": 1, "recallAt10": 1, "mrr": 1 },
+      "falsePositiveRateCeiling": 0.5
+    }
+  }
 }
