@@ -860,8 +860,8 @@
           <p>Pair the retrieval service with an MCP-capable local application and an Ollama, LM Studio, or llama.cpp model runtime.</p>
         </div>
         <div class="feature">
-          <h3>One private container</h3>
-          <p>Local embeddings, originals, chunks, and indexes run together with no hosted model API or external database required.</p>
+          <h3>Flexible storage backends</h3>
+          <p>Zero-config embedded libSQL for all-in-one local setups, or PostgreSQL + pgvector (HNSW cosine search, GIN tsvector, and distributed worker queues) for scalable architectures.</p>
         </div>
       </div>
     </div>
@@ -877,7 +877,7 @@
       </div>
       <div class="local-stack" aria-label="Fully local RAG path">
         <div class="stack-node"><strong>Private documents</strong><span>PDF, Office, Markdown, HTML, folders, URLs, and ZIP archives</span></div>
-        <div class="stack-node primary"><strong>MCP Knowledge</strong><span>Local parsing, embeddings, storage, hybrid search, and inspection</span></div>
+        <div class="stack-node primary"><strong>MCP Knowledge</strong><span>Local parsing, embeddings, storage (libSQL or Postgres + pgvector), and hybrid search</span></div>
         <div class="stack-node"><strong>Local application</strong><span>An MCP-capable client or your own application using the REST API</span></div>
         <div class="stack-node"><strong>Local model runtime</strong><span>Ollama, LM Studio, llama.cpp, or another model running on your hardware</span></div>
       </div>
@@ -907,7 +907,7 @@
           <h3>Use something else if</h3>
           <ul>
             <li>You need a chatbot or agent framework out of the box</li>
-            <li>You need multi-tenant or distributed deployment in v0.1</li>
+            <li>You need multi-tenant SaaS out of the box (single-tenant per database)</li>
             <li>You need OCR for scanned PDFs</li>
             <li>You need hosted-scale reranking or answer generation</li>
           </ul>
@@ -962,6 +962,7 @@
         <li>MCP tools are read-only — <code>search_documents</code>, <code>get_document</code>, <code>get_chunk</code>, <code>list_documents</code>, <code>list_collections</code>. Use REST to write.</li>
         <li>The loopback-only setup above has no authentication. Set <code>DASHBOARD_PASSPHRASE</code> and generate an API key before exposing it to a LAN, proxy, or tunnel.</li>
         <li>Everything persists in the <code>mcp-knowledge-data</code> named Docker volume. Removing the container does not remove its data.</li>
+        <li><strong>Database options:</strong> Embedded libSQL runs by default with zero configuration. For scalable multi-worker setups, set <code>DATABASE_DRIVER=postgres</code> and <code>DATABASE_URL</code> to connect to PostgreSQL with <code>pgvector</code> and <code>tsvector</code> full text search.</li>
       </ul>
     </div>
   </section>

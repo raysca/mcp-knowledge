@@ -12,10 +12,21 @@ import {
   UrlIngestService,
   loadWordPiece,
 } from "@mcp-knowledge/core";
-import { createKnowledgeRepository, migrateLibsql } from "@mcp-knowledge/db";
+import {
+  createKnowledgeRepository,
+  createPostgresClient,
+  createPostgresKnowledgeRepository,
+  migrateLibsql,
+  migratePostgres,
+} from "@mcp-knowledge/db";
 import { LocalTransformersEmbedder } from "@mcp-knowledge/embeddings";
 import { AnyDocParser, NativeTextParser, createParserRegistry } from "@mcp-knowledge/parser";
-import { LibsqlLexicalIndex, LibsqlVectorIndex } from "@mcp-knowledge/retrieval";
+import {
+  LibsqlLexicalIndex,
+  LibsqlVectorIndex,
+  PgVectorIndex,
+  PostgresLexicalIndex,
+} from "@mcp-knowledge/retrieval";
 import { createBlobStore } from "@mcp-knowledge/storage";
 import type { AppEnv } from "./config/env.ts";
 import { handleRequest, type AppServices } from "./http/router.ts";
@@ -50,11 +61,25 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   startStartupScan: () => void;
   stop: () => void;
 }> {
-  if (env.DATABASE_DRIVER !== "libsql") {
-    throw new Error("M3 only supports DATABASE_DRIVER=libsql");
+  const isPostgres = env.DATABASE_DRIVER === "postgres";
+  if (!isPostgres && env.DATABASE_DRIVER !== "libsql") {
+    throw new Error(`Unsupported DATABASE_DRIVER: ${env.DATABASE_DRIVER}`);
   }
-  await migrateLibsql(env.DATABASE_URL);
-  const repo = createKnowledgeRepository(env.DATABASE_URL);
+  if (isPostgres && !env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required when DATABASE_DRIVER=postgres.");
+  }
+
+  const pgClient = isPostgres ? createPostgresClient(env.DATABASE_URL) : undefined;
+
+  if (isPostgres) {
+    await migratePostgres(env.DATABASE_URL);
+  } else {
+    await migrateLibsql(env.DATABASE_URL);
+  }
+
+  const repo = pgClient
+    ? createPostgresKnowledgeRepository(pgClient)
+    : createKnowledgeRepository(env.DATABASE_URL);
   const blobs = createBlobStore(env);
   const registry = createParserRegistry([
     new NativeTextParser(),
@@ -63,8 +88,12 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   const modelPath = resolve(env.EMBEDDING_MODEL_PATH);
   const countTokens = await loadWordPiece(modelPath);
   const embedder = new LocalTransformersEmbedder({ modelPath });
-  const vectors = new LibsqlVectorIndex(env.DATABASE_URL);
-  const lexical = new LibsqlLexicalIndex(env.DATABASE_URL);
+  const vectors = pgClient
+    ? new PgVectorIndex(pgClient)
+    : new LibsqlVectorIndex(env.DATABASE_URL);
+  const lexical = pgClient
+    ? new PostgresLexicalIndex(pgClient)
+    : new LibsqlLexicalIndex(env.DATABASE_URL);
   const ingestion = new IngestionService(repo, blobs, registry, countTokens, embedder, vectors, env);
   const documents = new DocumentService(
     repo,
@@ -138,6 +167,9 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
       startupScan.stop();
       stopWorker();
       embedder.stop();
+      if (pgClient) {
+        pgClient.end().catch(() => undefined);
+      }
     },
     fetch: (req, server) => handleRequest(req, services, server?.requestIP?.(req)?.address),
   };

@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
-    "@mcp-knowledge/core": "workspace:*"
+    "@mcp-knowledge/core": "workspace:*",
+    "postgres": "^3.4.5"
   }
 }

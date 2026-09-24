@@ -68,66 +68,91 @@ export function placeholders(n: number): string {
   return Array.from({ length: n }, () => "?").join(",");
 }
 
-export function compileFilters(clauses: FilterClause[]): { sql: string; args: unknown[] } {
+export function compileFilters(
+  clauses: FilterClause[],
+  dialect: "libsql" | "postgres" = "libsql",
+): { sql: string; args: unknown[] } {
   const parts: string[] = [];
   const args: unknown[] = [];
+  const isPg = dialect === "postgres";
+
   for (const cl of clauses) {
-    const path = `$.${cl.field}`;
+    const path = isPg ? `{${cl.field.split(".").join(",")}}` : `$.${cl.field}`;
+    const extractC = isPg ? "c.metadata #>> ?::text[]" : "json_extract(c.metadata, ?)";
+    const extractD = isPg ? "d.metadata #>> ?::text[]" : "json_extract(d.metadata, ?)";
+    const numC = isPg ? `CAST(${extractC} AS NUMERIC)` : `CAST(${extractC} AS REAL)`;
+    const numD = isPg ? `CAST(${extractD} AS NUMERIC)` : `CAST(${extractD} AS REAL)`;
+
     switch (cl.op) {
       case "eq":
         if (cl.value === null) {
-          // json_extract returns SQL NULL for both missing paths and JSON null.
-          parts.push("(json_type(c.metadata, ?) = 'null' OR json_type(d.metadata, ?) = 'null')");
+          if (isPg) {
+            parts.push("(jsonb_typeof(c.metadata #> ?::text[]) = 'null' OR jsonb_typeof(d.metadata #> ?::text[]) = 'null')");
+          } else {
+            // json_extract returns SQL NULL for both missing paths and JSON null.
+            parts.push("(json_type(c.metadata, ?) = 'null' OR json_type(d.metadata, ?) = 'null')");
+          }
           args.push(path, path);
         } else {
-          parts.push("(json_extract(c.metadata, ?) = ? OR json_extract(d.metadata, ?) = ?)");
-          args.push(path, cl.value, path, cl.value);
+          parts.push(`(${extractC} = ? OR ${extractD} = ?)`);
+          args.push(path, isPg ? String(cl.value) : cl.value, path, isPg ? String(cl.value) : cl.value);
         }
         break;
       case "neq":
-        parts.push(
-          "(coalesce(json_extract(c.metadata, ?), json_extract(d.metadata, ?)) IS NOT ?)",
-        );
-        args.push(path, path, cl.value);
+        if (isPg) {
+          if (cl.value === null) {
+            parts.push(`(coalesce(${extractC}, ${extractD}) IS NOT NULL)`);
+            args.push(path, path);
+          } else {
+            parts.push(`(coalesce(${extractC}, ${extractD}) IS DISTINCT FROM ?)`);
+            args.push(path, path, String(cl.value));
+          }
+        } else {
+          parts.push(
+            "(coalesce(json_extract(c.metadata, ?), json_extract(d.metadata, ?)) IS NOT ?)",
+          );
+          args.push(path, path, cl.value);
+        }
         break;
       case "exists": {
         const want = cl.value !== false;
         if (want) {
-          parts.push("(json_extract(c.metadata, ?) IS NOT NULL OR json_extract(d.metadata, ?) IS NOT NULL)");
+          parts.push(`(${extractC} IS NOT NULL OR ${extractD} IS NOT NULL)`);
           args.push(path, path);
         } else {
-          parts.push("(json_extract(c.metadata, ?) IS NULL AND json_extract(d.metadata, ?) IS NULL)");
+          parts.push(`(${extractC} IS NULL AND ${extractD} IS NULL)`);
           args.push(path, path);
         }
         break;
       }
       case "gte":
-        parts.push(
-          "(CAST(json_extract(c.metadata, ?) AS REAL) >= ? OR CAST(json_extract(d.metadata, ?) AS REAL) >= ?)",
-        );
+        parts.push(`(${numC} >= ? OR ${numD} >= ?)`);
         args.push(path, cl.value, path, cl.value);
         break;
       case "lte":
-        parts.push(
-          "(CAST(json_extract(c.metadata, ?) AS REAL) <= ? OR CAST(json_extract(d.metadata, ?) AS REAL) <= ?)",
-        );
+        parts.push(`(${numC} <= ? OR ${numD} <= ?)`);
         args.push(path, cl.value, path, cl.value);
         break;
       case "in": {
         const values = Array.isArray(cl.value) ? cl.value : [];
         if (values.length === 0) {
-          parts.push("0");
+          parts.push("0 = 1");
           break;
         }
         const nonNull = values.filter((value) => value !== null);
         const matches: string[] = [];
         if (nonNull.length > 0) {
           const ph = placeholders(nonNull.length);
-          matches.push(`json_extract(c.metadata, ?) IN (${ph})`, `json_extract(d.metadata, ?) IN (${ph})`);
-          args.push(path, ...nonNull, path, ...nonNull);
+          matches.push(`${extractC} IN (${ph})`, `${extractD} IN (${ph})`);
+          const serialized = isPg ? nonNull.map(String) : nonNull;
+          args.push(path, ...serialized, path, ...serialized);
         }
         if (values.includes(null)) {
-          matches.push("json_type(c.metadata, ?) = 'null'", "json_type(d.metadata, ?) = 'null'");
+          if (isPg) {
+            matches.push("jsonb_typeof(c.metadata #> ?::text[]) = 'null'", "jsonb_typeof(d.metadata #> ?::text[]) = 'null'");
+          } else {
+            matches.push("json_type(c.metadata, ?) = 'null'", "json_type(d.metadata, ?) = 'null'");
+          }
           args.push(path, path);
         }
         parts.push(`(${matches.join(" OR ")})`);

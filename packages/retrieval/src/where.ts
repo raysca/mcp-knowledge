@@ -14,11 +14,14 @@ export function parseJson<T>(value: unknown, fallback: T): T {
   return fallback;
 }
 
-export function extraWhere(input: {
-  collectionIds?: string[];
-  documentIds?: string[];
-  filters?: FilterClause[];
-}): { sql: string; args: unknown[] } {
+export function extraWhere(
+  input: {
+    collectionIds?: string[];
+    documentIds?: string[];
+    filters?: FilterClause[];
+  },
+  dialect: "libsql" | "postgres" = "libsql",
+): { sql: string; args: unknown[] } {
   let sql = "";
   const args: unknown[] = [];
   if (input.documentIds?.length) {
@@ -30,11 +33,16 @@ export function extraWhere(input: {
     args.push(...input.collectionIds);
   }
   if (input.filters?.length) {
-    const compiled = compileFilters(input.filters);
+    const compiled = compileFilters(input.filters, dialect);
     if (compiled.sql) {
       sql += ` AND ${compiled.sql}`;
       args.push(...compiled.args);
     }
   }
   return { sql, args };
+}
+
+export function toPgPlaceholders(sql: string, startIdx = 1): string {
+  let idx = startIdx;
+  return sql.replace(/\?/g, () => `$${idx++}`);
 }

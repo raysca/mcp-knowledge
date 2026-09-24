@@ -8,6 +8,27 @@ services:
       DOCUMENT_CURSOR_SECRET: "${DOCUMENT_CURSOR_SECRET:-}"
     volumes: ["mcp-knowledge-data:/app/data"]
     restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: mcp-knowledge-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mcp_knowledge
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mcp_knowledge"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
 volumes:
   mcp-knowledge-data:
     name: mcp-knowledge-data
+  pgdata:
+    name: mcp-knowledge-pgdata
