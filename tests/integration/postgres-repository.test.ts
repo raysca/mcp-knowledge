@@ -181,4 +181,48 @@ describe.skipIf(!hasPostgres)("PostgreSQL storage & retrieval backend", () => {
     const completed = await repo.getJob(job.id);
     expect(completed?.status).toBe("completed");
   });
+
+  test("document catalog and generation tracking", async () => {
+    const genBefore = await repo.getCorpusGeneration();
+    const docId = newId("doc");
+    const revId = newId("rev");
+
+    await repo.createDocument({
+      documentId: docId,
+      revisionId: revId,
+      originalFilename: "catalog-test.md",
+      mimeType: "text/markdown",
+      sizeBytes: 150,
+      sha256: `sha_cat_${Date.now()}`,
+      metadata: { department: "engineering", team: "core" },
+      storageKey: `blobs/${docId}/original`,
+    });
+
+    const genAfterInsert = await repo.getCorpusGeneration();
+    expect(genAfterInsert).toBeGreaterThan(genBefore);
+
+    await repo.setDocumentStatus(docId, "ready");
+
+    // List catalog
+    const catalog = await repo.listDocumentCatalog({ limit: 10 });
+    expect(catalog.items.length).toBeGreaterThan(0);
+    const found = catalog.items.find((i) => i.id === docId);
+    expect(found).toBeDefined();
+    expect(found?.sourcePath).toBe("catalog-test.md");
+
+    // Filter catalog
+    const filtered = await repo.listDocumentCatalog({
+      limit: 10,
+      filters: [{ field: "department", op: "eq", value: "engineering" }],
+    });
+    expect(filtered.items.some((i) => i.id === docId)).toBe(true);
+
+    // Soft delete document
+    await repo.softDeleteDocument(docId);
+    const genAfterDelete = await repo.getCorpusGeneration();
+    expect(genAfterDelete).toBeGreaterThan(genAfterInsert);
+
+    const deletedCatalog = await repo.listDocumentCatalog({ status: "deleted", limit: 10 });
+    expect(deletedCatalog.items.some((i) => i.id === docId)).toBe(true);
+  });
 });

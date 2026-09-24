@@ -216,7 +216,15 @@ async function runE2ETest() {
     if (skuHits[0]?.chunkId !== chk2) throw new Error(`Expected chunk ${chk2}, got ${skuHits[0]?.chunkId}`);
     console.log("✓ Postgres tsvector lexical search verified for exact technical keywords and SKUs.");
 
-    console.log("10. Testing Soft Delete and Purge...");
+    console.log("10. Testing Document Catalog and Corpus Generation tracking...");
+    const gen = await repo.getCorpusGeneration();
+    if (typeof gen !== "number") throw new Error("getCorpusGeneration did not return a number");
+    await repo.setDocumentStatus(docId, "ready");
+    const catalog = await repo.listDocumentCatalog({ limit: 10 });
+    if (!catalog.items.some((i) => i.id === docId)) throw new Error("Document catalog missing document");
+    console.log(`✓ Document catalog verified (current corpus generation: ${gen}).`);
+
+    console.log("11. Testing Soft Delete and Purge...");
     await repo.softDeleteDocument(docId);
     const deletedDoc = await repo.getDocument(docId);
     if (deletedDoc !== null) throw new Error("Soft deleted document still returned by getDocument");

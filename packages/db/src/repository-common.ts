@@ -177,11 +177,11 @@ export function toJob(row: {
   status: string;
   attempt: number;
   maxAttempts: number;
-  lockedBy: string | null;
-  lockedAt: Date | null;
-  startedAt: Date | null;
-  completedAt: Date | null;
-  error: string | null;
+  lockedBy?: string | null;
+  lockedAt?: Date | null;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  error?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): IngestionJob {
@@ -204,15 +204,15 @@ export function toJob(row: {
 
 export function toArchiveImport(row: {
   id: string;
-  collectionId: string | null;
+  collectionId?: string | null;
   originalFilename: string;
   metadata: unknown;
   state: string;
-  entries: ArchiveImportEntry[] | null;
-  error: string | null;
+  entries?: ArchiveImportEntry[] | null;
+  error?: string | null;
   createdAt: Date;
-  startedAt: Date | null;
-  completedAt: Date | null;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
 }): ArchiveImport {
   return {
     id: row.id,
@@ -233,10 +233,10 @@ export function toApiKey(row: {
   name: string;
   keyPrefix: string;
   keyHash: string;
-  scopes: string[] | null;
+  scopes?: string[] | null;
   createdAt: Date;
-  lastUsedAt: Date | null;
-  revokedAt: Date | null;
+  lastUsedAt?: Date | null;
+  revokedAt?: Date | null;
 }): ApiKey {
   return {
     id: row.id,

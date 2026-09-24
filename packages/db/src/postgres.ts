@@ -21,14 +21,17 @@ export function createPostgresDb(clientOrUrl: string | postgres.Sql) {
 export async function migratePostgres(url: string): Promise<void> {
   const client = createPostgresClient(url, { max: 1 });
   try {
-    const init = await Bun.file(new URL("../../../drizzle/postgres/0001_init.sql", import.meta.url)).text();
-    await client.unsafe(init);
-
-    const embeddings = await Bun.file(new URL("../../../drizzle/postgres/0002_embeddings.sql", import.meta.url)).text();
-    await client.unsafe(embeddings);
-
-    const fts = await Bun.file(new URL("../../../drizzle/postgres/0003_fts.sql", import.meta.url)).text();
-    await client.unsafe(fts);
+    const files = [
+      "0001_init.sql",
+      "0002_embeddings.sql",
+      "0003_fts.sql",
+      "0004_catalog.sql",
+      "0005_fts_titles.sql",
+    ];
+    for (const file of files) {
+      const sql = await Bun.file(new URL(`../../../drizzle/postgres/${file}`, import.meta.url)).text();
+      await client.unsafe(sql);
+    }
   } finally {
     await client.end();
   }

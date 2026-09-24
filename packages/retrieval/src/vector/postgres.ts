@@ -33,6 +33,10 @@ export class PgVectorIndex implements VectorIndex {
                unnest(${vectors}::text[]) AS vec
       ) AS v
       WHERE c.id = v.id
+        AND EXISTS (
+          SELECT 1 FROM documents d
+          WHERE d.id = c.document_id AND d.deleted_at IS NULL
+        )
     `;
   }
 
@@ -50,7 +54,7 @@ export class PgVectorIndex implements VectorIndex {
       FROM document_chunks c
       JOIN documents d ON d.id = c.document_id
       WHERE c.embedding IS NOT NULL AND d.deleted_at IS NULL${extra.sql}
-      ORDER BY dist ASC LIMIT ?`;
+      ORDER BY dist ASC, c.id ASC LIMIT ?`;
 
     const args = [vecStr, ...extra.args, input.limit];
     const pgSql = toPgPlaceholders(rawSql);

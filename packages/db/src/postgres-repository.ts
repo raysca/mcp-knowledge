@@ -1,25 +1,30 @@
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   ApiKey,
   ArchiveImport,
   ArchiveImportEntry,
+  CatalogField,
+  CatalogItem,
+  CatalogPage,
   Collection,
   Document,
   DocumentRevision,
   IngestionJob,
   KnowledgeRepository,
+  ListDocumentCatalogQuery,
   ListDocumentsQuery,
   SourceFileOutcome,
   SourceFileRecord,
   SourceScanCycle,
   StoredChunk,
 } from "@mcp-knowledge/core";
-import { newId } from "@mcp-knowledge/core";
+import { AppError, newId, parseFilters } from "@mcp-knowledge/core";
 import { createPostgresClient, createPostgresDb, type PostgresClient } from "./postgres.ts";
 import {
   apiKeys,
   archiveImports,
   collections,
+  corpusState,
   documentChunks,
   documentRevisions,
   documents,
@@ -29,6 +34,8 @@ import {
 } from "./schema/postgres.ts";
 
 import {
+  catalogFields,
+  decodeCatalogCursor,
   decodeCursor,
   encodeCursor,
   toApiKey,
@@ -276,6 +283,121 @@ export class PostgresKnowledgeRepository implements KnowledgeRepository {
     };
   }
 
+  async getCorpusGeneration(): Promise<number> {
+    const rows = await this.db
+      .select({ generation: corpusState.generation })
+      .from(corpusState)
+      .where(eq(corpusState.id, 1))
+      .limit(1);
+    return rows[0] ? Number(rows[0].generation) : 0;
+  }
+
+  async listDocumentCatalog(q: ListDocumentCatalogQuery): Promise<CatalogPage> {
+    if (!Number.isSafeInteger(q.limit) || q.limit < 1 || q.limit >= Number.MAX_SAFE_INTEGER) {
+      throw new AppError("INVALID_ARGUMENT", "Catalog limit must be a positive integer.");
+    }
+    const status = q.status ?? "ready";
+    if (
+      !["pending", "processing", "ready", "failed", "deleted"].includes(status) ||
+      (q.collectionId !== undefined && (typeof q.collectionId !== "string" || !q.collectionId))
+    ) {
+      throw new AppError("INVALID_ARGUMENT", "Catalog status or collection is invalid.");
+    }
+    const fields = q.fields ?? catalogFields.slice(0, 5);
+    if (!Array.isArray(fields) || fields.length === 0 || fields.some((field) => !catalogFields.includes(field))) {
+      throw new AppError("INVALID_PROJECTION", "Catalog fields must come from the fixed projection.");
+    }
+    const predicates = [
+      status === "deleted" ? isNotNull(documents.deletedAt) : isNull(documents.deletedAt),
+      eq(documents.status, status),
+    ];
+    if (q.collectionId !== undefined) predicates.push(eq(documents.collectionId, q.collectionId));
+    if (q.cursor !== undefined) {
+      const { createdAt, id } = decodeCatalogCursor(q.cursor);
+      predicates.push(
+        or(
+          lt(documents.createdAt, new Date(createdAt)),
+          and(eq(documents.createdAt, new Date(createdAt)), lt(documents.id, id)),
+        )!,
+      );
+    }
+    if (q.filters !== undefined && !Array.isArray(q.filters)) {
+      throw new AppError("INVALID_FILTER", "Catalog filters must be parsed metadata clauses.");
+    }
+    for (const clause of q.filters ?? []) {
+      if (!clause || typeof clause.field !== "string" || typeof clause.op !== "string") {
+        throw new AppError("INVALID_FILTER", "Invalid catalog filter clause.");
+      }
+      parseFilters({ [clause.field]: { [clause.op]: clause.value } });
+      const path = `{${clause.field.split(".").join(",")}}`;
+      const isJsonNull = sql`jsonb_typeof(${documents.metadata} #> ${path}::text[]) = 'null'`;
+      const extract = sql`${documents.metadata} #>> ${path}::text[]`;
+      switch (clause.op) {
+        case "eq":
+          predicates.push(clause.value === null ? isJsonNull : sql`${extract} = ${String(clause.value)}`);
+          break;
+        case "neq":
+          predicates.push(sql`${extract} IS DISTINCT FROM ${String(clause.value)}`);
+          break;
+        case "exists":
+          predicates.push(clause.value === false ? sql`${extract} IS NULL` : sql`${extract} IS NOT NULL`);
+          break;
+        case "gte":
+          predicates.push(sql`CAST(${extract} AS NUMERIC) >= ${clause.value}`);
+          break;
+        case "lte":
+          predicates.push(sql`CAST(${extract} AS NUMERIC) <= ${clause.value}`);
+          break;
+        case "in": {
+          const values = clause.value as unknown[];
+          const nonNull = values.filter((v) => v !== null);
+          const membership = sql`${extract} IN (${sql.join(nonNull.map((v) => sql`${String(v)}`), sql`, `)})`;
+          predicates.push(
+            nonNull.length === 0
+              ? isJsonNull
+              : values.includes(null)
+              ? or(membership, isJsonNull)!
+              : membership,
+          );
+          break;
+        }
+      }
+    }
+    const rows = await this.db
+      .select({
+        id: documents.id,
+        revisionId: documents.currentRevisionId,
+        title: documents.title,
+        originalFilename: documents.originalFilename,
+        metadata: documents.metadata,
+        status: documents.status,
+        updatedAt: documents.updatedAt,
+        createdAt: documents.createdAt,
+      })
+      .from(documents)
+      .where(and(...predicates))
+      .orderBy(desc(documents.createdAt), desc(documents.id))
+      .limit(q.limit + 1);
+    const page = rows.slice(0, q.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => {
+        const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+        const item: CatalogItem = {
+          id: row.id,
+          revisionId: row.revisionId ?? undefined,
+          title: row.title ?? undefined,
+          sourcePath: typeof metadata.sourcePath === "string" ? metadata.sourcePath : row.originalFilename,
+          metadata,
+          status: row.status as Document["status"],
+          updatedAt: row.updatedAt,
+        };
+        return Object.fromEntries(fields.map((field) => [field, item[field]]));
+      }),
+      nextCursor: rows.length > q.limit && last ? encodeCursor(last.createdAt, last.id) : undefined,
+    };
+  }
+
   async getRevisionStorageKey(documentId: string): Promise<string | null> {
     const doc = await this.getDocument(documentId);
     if (!doc?.currentRevisionId) return null;
@@ -520,8 +642,6 @@ export class PostgresKnowledgeRepository implements KnowledgeRepository {
     await this.db.insert(archiveImports).values(row);
     return toArchiveImport({
       ...row,
-      lockedBy: null,
-      lockedAt: null,
       error: null,
       startedAt: null,
       completedAt: null,
@@ -720,7 +840,7 @@ export class PostgresKnowledgeRepository implements KnowledgeRepository {
     configurationFingerprint: string;
     proposedCycleId: string;
   }): Promise<SourceScanCycle> {
-    return this.client.begin(async (sql) => {
+    return this.client.begin(async (sql: any) => {
       const now = new Date();
       const existing = await sql`
         SELECT configuration_fingerprint, active_cycle
@@ -820,7 +940,7 @@ export class PostgresKnowledgeRepository implements KnowledgeRepository {
   async commitSourceImport(
     input: CommitSourceImportInput,
   ): Promise<CommitSourceImportResult> {
-    return this.client.begin(async (sql) => {
+    return this.client.begin(async (sql: any) => {
       const now = new Date();
       if (
         input.mode === "duplicate" &&
@@ -987,7 +1107,7 @@ export class PostgresKnowledgeRepository implements KnowledgeRepository {
     cycleId: string;
     limitReached: boolean;
   }): Promise<void> {
-    return this.client.begin(async (sql) => {
+    return this.client.begin(async (sql: any) => {
       const state = await sql`
         SELECT active_cycle FROM source_scan_state WHERE source_id = ${input.sourceId}
       `;

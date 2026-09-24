@@ -65,6 +65,9 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
   if (!isPostgres && env.DATABASE_DRIVER !== "libsql") {
     throw new Error(`Unsupported DATABASE_DRIVER: ${env.DATABASE_DRIVER}`);
   }
+  if (isPostgres && !env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required when DATABASE_DRIVER=postgres.");
+  }
 
   const pgClient = isPostgres ? createPostgresClient(env.DATABASE_URL) : undefined;
 

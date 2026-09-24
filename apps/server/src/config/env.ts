@@ -122,9 +122,6 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   const databaseUrl =
     source.DATABASE_URL ??
     (databaseDriver === "libsql" ? "file:./data/app.db" : "");
-  if (databaseDriver === "postgres" && !databaseUrl) {
-    throw new Error("DATABASE_URL is required when DATABASE_DRIVER=postgres.");
-  }
 
   return {
     APP_PROFILE: profile,

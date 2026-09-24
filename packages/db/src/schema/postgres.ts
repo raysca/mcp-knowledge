@@ -216,3 +216,9 @@ export const sourceFiles = pgTable(
     index("source_files_source_cycle").on(table.sourceId, table.scanCycle),
   ],
 );
+
+export const corpusState = pgTable("corpus_state", {
+  id: integer("id").primaryKey(),
+  generation: bigint("generation", { mode: "number" }).notNull(),
+});
+

@@ -99,10 +99,20 @@ export function compileFilters(
         }
         break;
       case "neq":
-        parts.push(
-          `(${extractC} IS DISTINCT FROM ? AND ${extractD} IS DISTINCT FROM ?)`,
-        );
-        args.push(path, isPg ? String(cl.value) : cl.value, path, isPg ? String(cl.value) : cl.value);
+        if (isPg) {
+          if (cl.value === null) {
+            parts.push(`(coalesce(${extractC}, ${extractD}) IS NOT NULL)`);
+            args.push(path, path);
+          } else {
+            parts.push(`(coalesce(${extractC}, ${extractD}) IS DISTINCT FROM ?)`);
+            args.push(path, path, String(cl.value));
+          }
+        } else {
+          parts.push(
+            "(coalesce(json_extract(c.metadata, ?), json_extract(d.metadata, ?)) IS NOT ?)",
+          );
+          args.push(path, path, cl.value);
+        }
         break;
       case "exists": {
         const want = cl.value !== false;
