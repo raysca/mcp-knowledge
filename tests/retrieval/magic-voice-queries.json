@@ -1,0 +1,20 @@
+[
+  { "query": "Um so I am trying to grow plants can you explain chlorophyll and photosynthesis in the leaves please", "relevant": ["01-plants.md"], "category": "semantic" },
+  { "query": "Okay so I want to make sourdough bread with a starter and wild yeast how does that work", "relevant": ["04-sourdough.md"], "category": "semantic" },
+  { "query": "Uh we are planning a water channel how did Roman aqueducts use gravity flow and concrete", "relevant": ["06-aqueducts.md"], "category": "semantic" },
+  { "query": "So I need to set up containers in a kubernetes pod with a YAML manifest please", "relevant": ["03-kubernetes.md"], "category": "semantic" },
+  { "query": "Um the payments service says CrashLoopBackOff I need to inspect the previous container logs", "relevant": ["13-cluster-runbook.json"], "category": "confusable" },
+  { "query": "Okay errors exceed two percent for five minutes do I run deployctl rollback", "relevant": ["15-release-runbook.md"], "category": "confusable" },
+  { "query": "Wait the VAT amount is incorrect can you find the credit note for INV-0042 please", "relevant": ["12-invoice-correction.txt"], "category": "confusable" },
+  { "query": "So when is payment for invoice INV-0042 due after the statement date", "relevant": ["09-invoice.md"], "category": "confusable" },
+  { "query": "Can you show both the payment invoice INV-0042 and its VAT correction credit note", "relevant": ["09-invoice.md", "12-invoice-correction.txt"], "category": "confusable" },
+  { "query": "RMA-17", "relevant": ["11-returns-policy.html"], "category": "lexical" },
+  { "query": "CN-8821", "relevant": ["12-invoice-correction.txt"], "category": "lexical" },
+  { "query": "FIN-7", "relevant": ["14-expense-policy.xml"], "category": "lexical" },
+  { "query": "INV-0042", "relevant": ["09-invoice.md", "12-invoice-correction.txt"], "category": "lexical" },
+  { "query": "Uh which section explains the RMA-17 hardware returns policy", "relevant": ["11-returns-policy.html"], "category": "provenance" },
+  { "query": "Um can you tell me the office Wi-Fi password please", "relevant": [], "category": "no-answer" },
+  { "query": "So does the sourdough starter contain peanuts or sesame allergens", "relevant": [], "category": "no-answer" },
+  { "query": "Okay what colour is the RMA-17 hardware packaging please", "relevant": [], "category": "no-answer" },
+  { "query": "ZXQ-99001", "relevant": [], "category": "no-answer" }
+]

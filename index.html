@@ -11,9 +11,9 @@
 <meta property="og:type" content="website" />
 <meta property="og:title" content="MCP Knowledge — local RAG you can see, test, and connect" />
 <meta property="og:description" content="Manage a private corpus in the dashboard, prove retrieval in the playground, then connect it over MCP or REST." />
-<meta property="og:url" content="https://Capgemini-AIE.github.io/mcp-knowledge/" />
-<meta property="og:image" content="https://Capgemini-AIE.github.io/mcp-knowledge/assets/social-preview.png" />
-<meta property="og:image:secure_url" content="https://Capgemini-AIE.github.io/mcp-knowledge/assets/social-preview.png" />
+<meta property="og:url" content="https://raysca.github.io/mcp-knowledge/" />
+<meta property="og:image" content="https://raysca.github.io/mcp-knowledge/assets/social-preview.png" />
+<meta property="og:image:secure_url" content="https://raysca.github.io/mcp-knowledge/assets/social-preview.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:image:type" content="image/png" />
@@ -21,7 +21,7 @@
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="MCP Knowledge — local RAG you can see, test, and connect" />
 <meta name="twitter:description" content="Manage a private corpus in the dashboard, prove retrieval in the playground, then connect it over MCP or REST." />
-<meta name="twitter:image" content="https://Capgemini-AIE.github.io/mcp-knowledge/assets/social-preview.png" />
+<meta name="twitter:image" content="https://raysca.github.io/mcp-knowledge/assets/social-preview.png" />
 <meta name="twitter:image:alt" content="MCP Knowledge local RAG dashboard and explainable search playground." />
 
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230B0D10'/%3E%3Crect x='24' y='26' width='52' height='7' rx='3.5' fill='%23E6E9EF'/%3E%3Crect x='24' y='46' width='52' height='7' rx='3.5' fill='%23E6E9EF'/%3E%3Crect x='24' y='66' width='28' height='7' rx='3.5' fill='%234ADEC0'/%3E%3C/svg%3E" />
@@ -597,7 +597,7 @@
       <a class="hide-sm" href="#how">How it works</a>
       <a class="hide-sm" href="#local">Local LLMs</a>
       <a class="hide-sm" href="#start">Quick start</a>
-      <a class="btn btn-secondary btn-sm" href="https://github.com/Capgemini-AIE/mcp-knowledge">GitHub</a>
+      <a class="btn btn-secondary btn-sm" href="https://github.com/raysca/mcp-knowledge">GitHub</a>
     </nav>
   </div>
 </header>
@@ -677,7 +677,7 @@
     <p class="stat-note">
       Measured in Docker on an Apple M4 Pro (12 CPU, 12 GB allotted) across 1,000 documents.
       Cold p95 search 10.0 ms. Method and the 100/500-document runs live in
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge/blob/main/docs/performance.md">docs/performance.md</a>.
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/docs/performance.md">docs/performance.md</a>.
     </p>
   </section>
 
@@ -935,7 +935,7 @@
   --restart unless-stopped \
   -p 127.0.0.1:3000:3000 \
   -v mcp-knowledge-data:/app/data \
-  ghcr.io/Capgemini-AIE/mcp-knowledge:0.1
+  ghcr.io/raysca/mcp-knowledge:0.1
 
 <span class="p">$</span> curl --fail http://127.0.0.1:3000/health</pre>
           </div>
@@ -974,8 +974,8 @@
         <h2>Operate it visually. Prove it locally. Connect it anywhere.</h2>
         <p>The dashboard manages your corpus, the playground explains retrieval, and MCP or REST brings the results to your chosen local model.</p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/Capgemini-AIE/mcp-knowledge#quick-start">Read the setup guide</a>
-          <a class="btn btn-secondary" href="https://github.com/Capgemini-AIE/mcp-knowledge">Star on GitHub</a>
+          <a class="btn btn-primary" href="https://github.com/raysca/mcp-knowledge#quick-start">Read the setup guide</a>
+          <a class="btn btn-secondary" href="https://github.com/raysca/mcp-knowledge">Star on GitHub</a>
         </div>
       </div>
     </div>
@@ -990,12 +990,12 @@
       <p class="colophon">MIT licensed · Docker-first · v0.1</p>
     </div>
     <nav class="foot-links" aria-label="Project links">
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge">GitHub</a>
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge#readme">README</a>
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge/blob/main/docs/supported-formats.md">Formats</a>
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge/blob/main/docs/troubleshooting.md">Troubleshooting</a>
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge/blob/main/SECURITY.md">Security</a>
-      <a href="https://github.com/Capgemini-AIE/mcp-knowledge/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/raysca/mcp-knowledge">GitHub</a>
+      <a href="https://github.com/raysca/mcp-knowledge#readme">README</a>
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/docs/supported-formats.md">Formats</a>
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/docs/troubleshooting.md">Troubleshooting</a>
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/raysca/mcp-knowledge/blob/main/CHANGELOG.md">Changelog</a>
     </nav>
   </div>
 </footer>

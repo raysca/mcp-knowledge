@@ -1,13 +1,14 @@
 import { AppError } from "../errors.ts";
-import type { SearchHit } from "../domain/types.ts";
+import type { CollapsedSearchHit, SearchHit } from "../domain/types.ts";
 import type { Embedder, LexicalIndex, VectorHit, VectorIndex } from "../ports.ts";
 import { parseFilters } from "../retrieval/filters.ts";
 import { hybridRrf } from "../retrieval/rrf.ts";
+import { collapseSearchHits } from "../retrieval/collapse.ts";
 import type { KnowledgeRepository } from "../ports.ts";
 import type { StoredChunk } from "../domain/types.ts";
 
 export type SearchExplain = {
-  hits: SearchHit[];
+  hits: SearchHit[] | CollapsedSearchHit[];
   vector: VectorHit[];
   lexical: Awaited<ReturnType<LexicalIndex["search"]>>;
   timings: {
@@ -38,7 +39,13 @@ function expandContent(hit: StoredChunk, all: StoredChunk[], expand: { type: str
     return around.map((c) => c.content).join("\n\n");
   }
   if (expand.type === "section") {
-    const section = all.filter((c) => headingPrefix(c.headingPath, hit.headingPath)).slice(0, 40);
+    const section = all
+      .filter((c) =>
+        hit.headingPath.length === 0
+          ? c.headingPath.length === 0
+          : headingPrefix(c.headingPath, hit.headingPath),
+      )
+      .slice(0, 40);
     return section.map((c) => c.content).join("\n\n");
   }
   if (expand.type === "document") {
@@ -57,6 +64,7 @@ export class SearchService {
       VECTOR_CANDIDATES: number;
       LEXICAL_CANDIDATES: number;
       RRF_K: number;
+      MAX_COLLAPSE_CANDIDATES?: number;
     },
   ) {}
 
@@ -66,6 +74,7 @@ export class SearchService {
     documentIds?: string[];
     filters?: unknown;
     mode?: string;
+    collapse?: "none" | "document";
     limit: number;
     expand?: { type?: string; before?: number; after?: number };
     explain?: boolean;
@@ -75,6 +84,10 @@ export class SearchService {
     const mode = input.mode ?? "hybrid";
     if (mode !== "vector" && mode !== "lexical" && mode !== "hybrid") {
       throw new AppError("SEARCH_MODE_UNSUPPORTED", `Unknown search mode: ${mode}`, 400);
+    }
+    const collapse = input.collapse ?? "none";
+    if (collapse !== "none" && collapse !== "document") {
+      throw new AppError("SEARCH_COLLAPSE_UNSUPPORTED", `Unknown search collapse: ${collapse}`, 400);
     }
     const filters = parseFilters(input.filters);
     const expand = {
@@ -88,19 +101,23 @@ export class SearchService {
     let lexicalSearchMs = 0;
     let vector: VectorHit[] = [];
     let lexical: Awaited<ReturnType<LexicalIndex["search"]>> = [];
+    let vecLimit = mode === "hybrid" || collapse === "document" ? this.limits.VECTOR_CANDIDATES : input.limit;
+    let lexLimit = mode === "hybrid" || collapse === "document" ? this.limits.LEXICAL_CANDIDATES : input.limit;
+    let vec: number[] | undefined;
 
     if (mode === "vector" || mode === "hybrid") {
       const e0 = performance.now();
-      const [vec] = await this.embedder.embed([query]);
+      const [embedded] = await this.embedder.embed([query]);
       embeddingMs = performance.now() - e0;
-      if (!vec) throw new AppError("INTERNAL_ERROR", "Embedder returned no vector.", 500);
+      if (!embedded) throw new AppError("INTERNAL_ERROR", "Embedder returned no vector.", 500);
+      vec = embedded;
       const v0 = performance.now();
       vector = await this.vectors.search({
         collectionIds: input.collectionIds,
         documentIds: input.documentIds,
         filters,
         vector: vec,
-        limit: mode === "hybrid" ? this.limits.VECTOR_CANDIDATES : input.limit,
+        limit: vecLimit,
       });
       vectorSearchMs = performance.now() - v0;
     }
@@ -111,9 +128,60 @@ export class SearchService {
         collectionIds: input.collectionIds,
         documentIds: input.documentIds,
         filters,
-        limit: mode === "hybrid" ? this.limits.LEXICAL_CANDIDATES : input.limit,
+        limit: lexLimit,
       });
       lexicalSearchMs = performance.now() - l0;
+    }
+
+    if (collapse === "document") {
+      const maxCandidates =
+        this.limits.MAX_COLLAPSE_CANDIDATES ??
+        Math.max(this.limits.VECTOR_CANDIDATES, this.limits.LEXICAL_CANDIDATES);
+      let distinctDocs = new Set([
+        ...vector.map((h) => h.documentId),
+        ...lexical.map((h) => h.documentId),
+      ]).size;
+      while (distinctDocs < input.limit) {
+        const canExpandVec =
+          (mode === "hybrid" || mode === "vector") &&
+          vec !== undefined &&
+          vector.length === vecLimit &&
+          vecLimit < maxCandidates;
+        const canExpandLex =
+          (mode === "hybrid" || mode === "lexical") &&
+          lexical.length === lexLimit &&
+          lexLimit < maxCandidates;
+        if (!canExpandVec && !canExpandLex) break;
+
+        if (canExpandVec && vec) {
+          vecLimit = Math.min(maxCandidates, Math.max(vecLimit * 2, input.limit * 3));
+          const v0 = performance.now();
+          vector = await this.vectors.search({
+            collectionIds: input.collectionIds,
+            documentIds: input.documentIds,
+            filters,
+            vector: vec,
+            limit: vecLimit,
+          });
+          vectorSearchMs += performance.now() - v0;
+        }
+        if (canExpandLex) {
+          lexLimit = Math.min(maxCandidates, Math.max(lexLimit * 2, input.limit * 3));
+          const l0 = performance.now();
+          lexical = await this.lexical.search({
+            query,
+            collectionIds: input.collectionIds,
+            documentIds: input.documentIds,
+            filters,
+            limit: lexLimit,
+          });
+          lexicalSearchMs += performance.now() - l0;
+        }
+        distinctDocs = new Set([
+          ...vector.map((h) => h.documentId),
+          ...lexical.map((h) => h.documentId),
+        ]).size;
+      }
     }
 
     const f0 = performance.now();
@@ -141,23 +209,13 @@ export class SearchService {
       if (entry) entry.lex = h;
       else byId.set(h.chunkId, { lex: h });
     }
-    const top = fused.slice(0, input.limit);
+    const top = collapse === "document" ? fused : fused.slice(0, input.limit);
     const revCache = new Map<string, StoredChunk[]>();
     const hits: SearchHit[] = [];
     for (const [i, row] of top.entries()) {
       const entry = byId.get(row.chunkId);
       const src = entry?.vec ?? entry?.lex;
       if (!src) continue;
-      let content = src.content;
-      if (expand.type !== "none") {
-        let all = revCache.get(src.revisionId);
-        if (!all) {
-          all = await this.repo.listRevisionChunks(src.revisionId);
-          revCache.set(src.revisionId, all);
-        }
-        const self = all.find((c) => c.id === src.chunkId);
-        if (self) content = expandContent(self, all, expand);
-      }
       const v = entry?.vec;
       const l = entry?.lex;
       hits.push({
@@ -165,7 +223,7 @@ export class SearchService {
         documentId: src.documentId,
         revisionId: src.revisionId,
         title: src.title,
-        content,
+        content: src.content,
         headingPath: src.headingPath,
         location: src.location,
         score: mode === "hybrid" ? row.fusionScore : src.score,
@@ -180,14 +238,30 @@ export class SearchService {
         metadata: {},
       });
     }
+    const results = collapse === "document" ? collapseSearchHits(hits, input.limit) : hits;
+    if (expand.type !== "none") {
+      for (const hit of results) {
+        let all = revCache.get(hit.revisionId);
+        if (!all) {
+          all = await this.repo.listRevisionChunks(hit.revisionId);
+          revCache.set(hit.revisionId, all);
+        }
+        const self = all.find((chunk) => chunk.id === hit.chunkId);
+        if (self) hit.content = expandContent(self, all, expand);
+      }
+    }
     const fusionMs = performance.now() - f0;
     const totalMs = performance.now() - t0;
     const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
     const blob = lexical.map((h) => h.content.toLowerCase()).join(" ");
-    const matchedTerms = qTokens.filter((t) => blob.includes(t.replace(/^"+|"+$/g, "")));
+    const matchedTerms = qTokens.filter((t) => {
+      const cleaned = t.replace(/^"+|"+$/g, "");
+      const term = cleaned.endsWith("*") && cleaned.length > 1 ? cleaned.slice(0, -1) : cleaned;
+      return term.length > 0 && blob.includes(term);
+    });
     if (input.explain) {
       return {
-        hits,
+        hits: results,
         vector,
         lexical,
         timings: { embeddingMs, vectorSearchMs, lexicalSearchMs, fusionMs, totalMs },
@@ -195,6 +269,6 @@ export class SearchService {
         filters: input.filters ?? {},
       };
     }
-    return { hits };
+    return { hits: results };
   }
 }

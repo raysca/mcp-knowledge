@@ -21,7 +21,7 @@ async function waitForScan(base: string): Promise<StartupScanStatus> {
   throw new Error("scan did not finish");
 }
 
-type Doc = { id: string; originalFilename: string; status: string };
+type Doc = { id: string; originalFilename: string; status: string; metadata: Record<string, unknown> };
 
 describe("startup directory ingestion (end to end)", () => {
   let baseDir = "";
@@ -345,5 +345,90 @@ describe("startup directory ingestion (end to end)", () => {
     const second = await runScanAndWaitForArchives();
     expect(second.status.state).toBe("completed");
     expect(await countArchives()).toBe(firstCount);
+  });
+
+  test("manifest metadata survives ingestion, refreshes on restart, and follows renamed source paths", async () => {
+    const manifestPath = join(sourceRoot, ".mcp-knowledge-manifest.json");
+    await mkdir(join(sourceRoot, "guides"), { recursive: true });
+    await writeFile(join(sourceRoot, "guides", "manifest.md"), "# Manifest guide\n\nA distinct guide for metadata tests.\n");
+    const saveManifest = async (type: string) => writeFile(manifestPath, JSON.stringify({ rules: [
+      { glob: "guides/**/*.md", metadata: { documentType: "generic", count: 0, enabled: false,
+        tags: ["first", null], config: { nested: true }, sourcePath: "forged.md" } },
+      { glob: "guides/manifest.md", metadata: { documentType: type } },
+    ] }));
+    async function readyCatalog(id: string) {
+      return withApp(async (base) => {
+        for (let attempt = 0; attempt < 300; attempt += 1) {
+          const response = await fetch(`${base}/api/v1/document-catalog?limit=100`);
+          expect(response.status).toBe(200);
+          const catalog = await response.json() as { corpusVersion: string; items: Array<{ id: string; sourcePath: string; metadata: Record<string, unknown> }> };
+          const item = catalog.items.find((entry) => entry.id === id);
+          if (item) {
+            const chunks = await fetch(`${base}/api/v1/documents/${id}/chunks`).then((response) => response.json()) as { items: Array<{ id: string }> };
+            expect(chunks.items.length).toBeGreaterThan(0);
+            return { item, corpusVersion: catalog.corpusVersion, chunkIds: chunks.items.map((chunk) => chunk.id) };
+          }
+          const jobs = await fetch(`${base}/api/v1/jobs`).then((response) => response.json()) as { items: Array<{ documentId: string; error?: string | null; status: string }> };
+          const failed = jobs.items.find((job) => job.documentId === id && job.error);
+          if (failed) throw new Error(JSON.stringify(failed));
+          await Bun.sleep(20);
+        }
+        throw new Error("manifest document did not become catalog-visible");
+      });
+    }
+
+    await saveManifest("project_guide");
+    const first = await runScan();
+    expect(first.status.state).toBe("completed");
+    const original = first.docs.find((doc) => doc.originalFilename === "manifest.md")!;
+    expect(original.metadata).toEqual({ sourcePath: "guides/manifest.md", documentType: "project_guide",
+      count: 0, enabled: false, tags: ["first", null], config: { nested: true } });
+    expect(first.docs.some((doc) => doc.originalFilename === ".mcp-knowledge-manifest.json")).toBe(false);
+    const firstCatalog = await readyCatalog(original.id);
+    expect(firstCatalog.item.sourcePath).toBe("guides/manifest.md");
+    expect(firstCatalog.item.metadata).toEqual(original.metadata);
+    const unchanged = await runScan();
+    expect(unchanged.jobCount).toBe(first.jobCount);
+    expect(unchanged.docs.find((doc) => doc.originalFilename === "manifest.md")?.id).toBe(original.id);
+
+    await saveManifest("reference");
+    const changed = await runScan();
+    expect(changed.status.state).toBe("completed");
+    const refreshed = changed.docs.find((doc) => doc.originalFilename === "manifest.md")!;
+    expect(refreshed.id).not.toBe(original.id);
+    expect(refreshed.metadata.documentType).toBe("reference");
+    expect(changed.jobCount).toBe(first.jobCount + 1);
+    const refreshedCatalog = await readyCatalog(refreshed.id);
+    expect(refreshedCatalog.corpusVersion).not.toBe(firstCatalog.corpusVersion);
+    expect(refreshedCatalog.item.metadata.documentType).toBe("reference");
+    expect(refreshedCatalog.chunkIds.some((id) => firstCatalog.chunkIds.includes(id))).toBe(false);
+    await withApp(async (base) => expect(await docStatus(base, original.id)).toBe(404));
+
+    await rename(join(sourceRoot, "guides", "manifest.md"), join(sourceRoot, "guides", "renamed-manifest.md"));
+    const renamed = await runScan();
+    const renamedDoc = renamed.docs.find((doc) => doc.originalFilename === "renamed-manifest.md")!;
+    expect(renamedDoc.id).not.toBe(refreshed.id);
+    expect(renamedDoc.metadata.documentType).toBe("generic");
+    const renamedCatalog = await readyCatalog(renamedDoc.id);
+    expect(renamedCatalog.item.sourcePath).toBe("guides/renamed-manifest.md");
+    expect(renamedCatalog.chunkIds.some((id) => refreshedCatalog.chunkIds.includes(id))).toBe(false);
+
+    await rm(manifestPath);
+    const removed = await runScan();
+    const withoutManifest = removed.docs.find((doc) => doc.originalFilename === "renamed-manifest.md")!;
+    expect(withoutManifest.id).not.toBe(renamedDoc.id);
+    expect(withoutManifest.metadata).toEqual({ sourcePath: "guides/renamed-manifest.md" });
+    expect((await readyCatalog(withoutManifest.id)).item.metadata).toEqual(withoutManifest.metadata);
+  });
+
+  test("malformed root manifest fails a startup scan before ingesting any candidates", async () => {
+    const manifestPath = join(sourceRoot, ".mcp-knowledge-manifest.json");
+    await writeFile(manifestPath, '{"rules":[{"glob":"../*.md","metadata":{}}]}');
+    try {
+      const result = await runScan();
+      expect(result.status.state).toBe("failed");
+      expect(result.status.counts.discovered).toBe(0);
+      expect(result.status.error).toContain("manifest");
+    } finally { await rm(manifestPath); }
   });
 });

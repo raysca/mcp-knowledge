@@ -24,6 +24,32 @@ describe("chunkBlocks", () => {
     expect(chunks[0]!.id.startsWith("chk_")).toBe(true);
   });
 
+  test("formats embeddingText with context and cleanly omits empty sections", () => {
+    const blocks: DocumentBlock[] = [
+      { type: "paragraph", text: "Preamble content without headings" },
+    ];
+    const chunks = chunkBlocks(blocks, {
+      title: "Doc",
+      context: "Type: project_guide",
+      revisionHash: "abc",
+      countTokens,
+    });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]!.embeddingText).toBe(
+      "Document: Doc\nContext: Type: project_guide\n\nPreamble content without headings",
+    );
+    expect(chunks[0]!.embeddingText).not.toContain("Section:");
+
+    // Undefined context does not emit Context header
+    const noContext = chunkBlocks(blocks, {
+      title: "Doc",
+      revisionHash: "abc",
+      countTokens,
+    });
+    expect(noContext[0]!.embeddingText).toBe("Document: Doc\n\nPreamble content without headings");
+    expect(noContext[0]!.embeddingText).not.toContain("Context:");
+  });
+
   test("keeps a block's truthful character range on its chunk", () => {
     const chunks = chunkBlocks([
       { type: "paragraph", text: "source text", location: { charStart: 11, charEnd: 22 } },

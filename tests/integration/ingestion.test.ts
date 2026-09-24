@@ -57,8 +57,25 @@ describe("ingestion", () => {
 
     const normalized = await fetch(`${base}/api/v1/documents/${body.id}/normalized`);
     expect(normalized.status).toBe(200);
-    const n = (await normalized.json()) as { blocks: unknown[] };
-    expect(n.blocks.length).toBeGreaterThan(0);
+    const page = (await normalized.json()) as { blocks: unknown[]; truncated: boolean; returnedBlocks: number };
+    expect(page.blocks.length).toBeGreaterThan(0);
+    expect(page.returnedBlocks).toBe(page.blocks.length);
+    expect(page.truncated).toBe(false);
+  });
+
+  test("upload with metadata.documentType includes context in stored chunks", async () => {
+    const form = new FormData();
+    form.set("file", new File(["Preamble without heading."], "typed.md"));
+    form.set("metadata", JSON.stringify({ documentType: "api_spec" }));
+    const created = await fetch(`${base}/api/v1/documents`, { method: "POST", body: form });
+    expect(created.status).toBe(202);
+    const body = (await created.json()) as { id: string };
+    await waitForStatus(base, body.id, ["ready"]);
+
+    const chunks = await fetch(`${base}/api/v1/documents/${body.id}/chunks`);
+    expect(chunks.status).toBe(200);
+    const listed = (await chunks.json()) as { items: Array<{ embeddingText: string }> };
+    expect(listed.items[0]!.embeddingText).toContain("Context: Type: api_spec");
   });
 
   test("docx fixture is parsed via anydoc subprocess", async () => {

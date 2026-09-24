@@ -4,6 +4,7 @@ import type {
   ArchiveImportService,
   CollectionService,
   DocumentService,
+  DocumentCatalogService,
   SearchService,
   UrlIngestService,
 } from "@mcp-knowledge/core";
@@ -25,6 +26,7 @@ import {
 export type AppServices = {
   env: AppEnv;
   documents: DocumentService;
+  catalog: DocumentCatalogService;
   archives: ArchiveImportService;
   collections: CollectionService;
   search: SearchService;
@@ -79,6 +81,12 @@ function archiveImportJson(record: ArchiveImport) {
     documentIds,
     error: record.error ?? null,
   };
+}
+
+function searchCollapse(value: unknown): "none" | "document" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "none" || value === "document") return value;
+  throw new AppError("SEARCH_COLLAPSE_UNSUPPORTED", "collapse must be none or document.", 400);
 }
 
 export async function handleRequest(
@@ -241,6 +249,24 @@ export async function handleRequest(
       }
     }
 
+    if (url.pathname === "/api/v1/document-catalog" && req.method === "GET") {
+      const query = url.searchParams;
+      let filters: unknown;
+      if (query.has("filters")) {
+        try { filters = JSON.parse(query.get("filters")!); }
+        catch { throw new AppError("INVALID_FILTER", "filters must be valid JSON.", 400); }
+      }
+      return json(await svc.catalog.list({
+        collectionId: query.get("collectionId") ?? undefined,
+        status: query.get("status") ?? undefined,
+        cursor: query.get("cursor") ?? undefined,
+        limit: query.has("limit") ? Number(query.get("limit")) : undefined,
+        fields: query.has("fields") ? query.get("fields")!.split(",") : undefined,
+        filters,
+        ifCorpusVersion: query.get("ifCorpusVersion") ?? undefined,
+      }), 200, requestId);
+    }
+
     if (url.pathname === "/api/v1/documents" && req.method === "GET") {
       const limit = clampLimit(url.searchParams.get("limit"), svc.env.MAX_LIST_LIMIT, 50);
       const result = await svc.documents.list({
@@ -362,7 +388,19 @@ export async function handleRequest(
     const normalizedMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/normalized$/);
     if (normalizedMatch && req.method === "GET") {
       const id = decodeURIComponent(normalizedMatch[1]!);
-      return json(await svc.documents.normalized(id), 200, requestId);
+      const { body, document: _doc, ...page } = await svc.documents.normalizedPage(id, {
+        cursor: url.searchParams.get("blockCursor") ?? undefined,
+        blockLimit: url.searchParams.has("blockLimit")
+          ? clampLimit(
+              url.searchParams.get("blockLimit"),
+              svc.env.MAX_LIST_LIMIT,
+              Math.min(50, svc.env.MAX_LIST_LIMIT),
+            )
+          : undefined,
+        maxChars: svc.env.MAX_MCP_DOCUMENT_CHARS,
+        headings: url.searchParams.getAll("heading"),
+      });
+      return json({ ...(JSON.parse(body) as Record<string, unknown>), ...page }, 200, requestId);
     }
 
     const reindexMatch = url.pathname.match(/^\/api\/v1\/documents\/([^/]+)\/reindex$/);
@@ -399,6 +437,7 @@ export async function handleRequest(
         documentIds?: string[];
         filters?: unknown;
         mode?: string;
+        collapse?: unknown;
         limit?: number;
         expand?: { type?: string; before?: number; after?: number };
         explain?: boolean;
@@ -415,6 +454,7 @@ export async function handleRequest(
           documentIds: body.documentIds,
           filters: body.filters,
           mode: body.mode,
+          collapse: searchCollapse(body.collapse),
           limit,
           expand: body.expand,
           explain: body.explain,
@@ -431,6 +471,7 @@ export async function handleRequest(
         documentIds?: string[];
         filters?: unknown;
         mode?: string;
+        collapse?: unknown;
         limit?: number;
         expand?: { type?: string; before?: number; after?: number };
       };
@@ -446,6 +487,7 @@ export async function handleRequest(
           documentIds: body.documentIds,
           filters: body.filters,
           mode: body.mode,
+          collapse: searchCollapse(body.collapse),
           limit,
           expand: body.expand,
           explain: true,

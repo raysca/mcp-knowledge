@@ -5,11 +5,12 @@ services:
     ports: ["127.0.0.1:3000:3000"]
     environment:
       DASHBOARD_PASSPHRASE: "${DASHBOARD_PASSPHRASE:-}"
+      DOCUMENT_CURSOR_SECRET: "${DOCUMENT_CURSOR_SECRET:-}"
     volumes: ["mcp-knowledge-data:/app/data"]
     restart: unless-stopped
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     container_name: mcp-knowledge-postgres
     restart: unless-stopped
     ports:

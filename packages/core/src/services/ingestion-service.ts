@@ -86,7 +86,14 @@ export class IngestionService {
       doc.originalFilename;
     const drafts = chunkBlocks(normalized.blocks, {
       title,
-      revisionHash: revision.sha256,
+      context:
+        typeof doc.metadata?.documentType === "string" && doc.metadata.documentType.trim()
+          ? `Type: ${doc.metadata.documentType.trim()}`
+          : undefined,
+      // Same bytes can be re-imported after a source rename or metadata update.
+      // Scope IDs to the revision so retired chunks cannot collide with new ones;
+      // retries within this revision still produce exactly the same IDs.
+      revisionHash: `${revision.sha256}\0${revision.id}`,
       countTokens: this.countTokens,
     });
     if (drafts.length > this.limits.MAX_CHUNKS_PER_DOCUMENT) {

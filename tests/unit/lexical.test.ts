@@ -76,5 +76,15 @@ describe("LibsqlLexicalIndex", () => {
     const fts = new LibsqlLexicalIndex(url);
     const hits = await fts.search({ query: "INV-0042", limit: 8 });
     expect(hits[0]?.chunkId).toBe("chk_sku");
+    expect(hits[0]).toMatchObject({ lexicalMatchMode: "exact", lexicalRank: 1 });
+  });
+
+  test("handles long conversational queries without subquery or expression overflow", async () => {
+    const fts = new LibsqlLexicalIndex(url);
+    const longQuery = "um hello there can you please explain how to configure invoice policy payment thirty days customer account billing setup without errors or issues in this environment thank you very much indeed";
+    const hits = await fts.search({ query: longQuery, limit: 5 });
+    expect(Array.isArray(hits)).toBe(true);
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0]?.lexicalMatchMode).toBe("fallback");
   });
 });

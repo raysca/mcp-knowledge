@@ -1,15 +1,41 @@
-import type {
-  ApiKey,
-  ArchiveImport,
-  ArchiveImportEntry,
-  Collection,
-  Document,
-  DocumentRevision,
-  IngestionJob,
-  SourceFileOutcome,
-  SourceFileRecord,
-  StoredChunk,
+import {
+  AppError,
+  type ApiKey,
+  type ArchiveImport,
+  type ArchiveImportEntry,
+  type CatalogField,
+  type Collection,
+  type Document,
+  type DocumentRevision,
+  type IngestionJob,
+  type SourceFileOutcome,
+  type SourceFileRecord,
+  type StoredChunk,
 } from "@mcp-knowledge/core";
+
+export const catalogFields: CatalogField[] = [
+  "id",
+  "revisionId",
+  "title",
+  "sourcePath",
+  "metadata",
+  "status",
+  "updatedAt",
+];
+
+export function decodeCatalogCursor(cursor: string): { createdAt: number; id: string } {
+  if (typeof cursor !== "string" || cursor.length > 4096 || !/^[A-Za-z0-9_-]+$/.test(cursor)) {
+    throw new AppError("INVALID_CURSOR", "The catalog cursor is invalid.");
+  }
+  const raw = Buffer.from(cursor, "base64url").toString("utf8");
+  const match = /^(0|[1-9]\d*):([^\s:]+)$/.exec(raw);
+  const createdAt = Number(match?.[1]);
+  if (!match || Buffer.from(raw).toString("base64url") !== cursor || !Number.isSafeInteger(createdAt)
+    || !Number.isFinite(new Date(createdAt).getTime())) {
+    throw new AppError("INVALID_CURSOR", "The catalog cursor is invalid.");
+  }
+  return { createdAt, id: match[2]! };
+}
 
 export function encodeCursor(createdAt: Date | number, id: string): string {
   const time = createdAt instanceof Date ? createdAt.getTime() : createdAt;

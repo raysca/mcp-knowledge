@@ -2,8 +2,9 @@ import { lstat, open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import fg from "fast-glob";
 import { AppError } from "@mcp-knowledge/core";
+import { loadMetadataManifest, METADATA_MANIFEST_NAME, type MetadataManifest } from "./metadata-manifest.ts";
 
-export type SourceCandidate = { relativePath: string };
+export type SourceCandidate = { relativePath: string; metadata?: Record<string, unknown> };
 
 type FileSnapshot = { size: number; mtimeMs: number; ino: number };
 
@@ -32,10 +33,11 @@ export class LocalDirectorySource {
   private constructor(
     private readonly canonicalRoot: string,
     private readonly maxDepth: number,
+    private readonly manifest: MetadataManifest,
   ) {
     this.sourceId = sha256(`local\0${canonicalRoot}`);
     this.configurationFingerprint = sha256(
-      `${this.sourceId}\0${this.maxDepth}\0${ENUMERATION_VERSION}`,
+      `${this.sourceId}\0${this.maxDepth}\0${ENUMERATION_VERSION}\0${manifest.fingerprint}`,
     );
   }
 
@@ -45,7 +47,7 @@ export class LocalDirectorySource {
     if (!rootStats.isDirectory()) {
       throw new Error("Local directory source root must be a directory.");
     }
-    return new LocalDirectorySource(canonicalRoot, input.maxDepth);
+    return new LocalDirectorySource(canonicalRoot, input.maxDepth, await loadMetadataManifest(canonicalRoot));
   }
 
   async *candidates(signal: AbortSignal): AsyncIterable<SourceCandidate> {
@@ -66,8 +68,10 @@ export class LocalDirectorySource {
     }>) {
       throwIfAborted(signal);
       if (!entry.dirent.isFile() || entry.dirent.isSymbolicLink()) continue;
-      const relativePath = entry.path.replaceAll("\\", "/");
-      if (this.resolveCandidate(relativePath)) yield { relativePath };
+      const relativePath = entry.path;
+      if (this.resolveCandidate(relativePath)) {
+        yield { relativePath, metadata: { ...this.manifest.metadataForPath(relativePath), sourcePath: relativePath } };
+      }
     }
   }
 
@@ -157,8 +161,9 @@ export class LocalDirectorySource {
   }
 
   private resolveCandidate(relativePath: string): string | undefined {
-    const normalized = relativePath.replaceAll("\\", "/");
-    if (!normalized || isAbsolute(normalized) || normalized.split("/").includes("..")) {
+    const normalized = relativePath;
+    if (!normalized || isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized) || normalized.includes("\\") ||
+        normalized.split("/").some((segment) => !segment || segment === "." || segment === ".." || segment === METADATA_MANIFEST_NAME)) {
       return undefined;
     }
 

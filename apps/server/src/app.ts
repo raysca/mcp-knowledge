@@ -1,9 +1,11 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import {
   ApiKeyService,
   ArchiveImportService,
   CollectionService,
   DocumentService,
+  DocumentCatalogService,
   IngestionService,
   SearchService,
   SourceImportService,
@@ -31,6 +33,14 @@ import { handleRequest, type AppServices } from "./http/router.ts";
 import { LocalDirectorySource } from "./startup-scan/local-directory-source.ts";
 import { StartupIngestionCoordinator } from "./startup-scan/coordinator.ts";
 import { startWorkerLoop } from "./workers/loop.ts";
+
+const processCursorKey = randomBytes(32);
+
+function documentCursorKey(secret?: Uint8Array): Uint8Array {
+  return secret
+    ? createHmac("sha256", secret).update("mcp-knowledge:document-block-cursor:v1").digest()
+    : processCursorKey;
+}
 
 export type AppOverrides = {
   createDirectorySource?: (input: {
@@ -82,7 +92,12 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
     ? new PostgresLexicalIndex(pgClient)
     : new LibsqlLexicalIndex(env.DATABASE_URL);
   const ingestion = new IngestionService(repo, blobs, registry, countTokens, embedder, vectors, env);
-  const documents = new DocumentService(repo, blobs, env.MAX_UPLOAD_BYTES);
+  const documents = new DocumentService(
+    repo,
+    blobs,
+    env.MAX_UPLOAD_BYTES,
+    documentCursorKey(env.DOCUMENT_CURSOR_SECRET),
+  );
   const archives = new ArchiveImportService(repo, blobs, documents, {
     MAX_UPLOAD_BYTES: env.MAX_UPLOAD_BYTES,
     MAX_ARCHIVE_ENTRIES: env.MAX_ARCHIVE_ENTRIES,
@@ -135,6 +150,7 @@ export async function createApp(env: AppEnv, overrides: AppOverrides = {}): Prom
     env,
     documents,
     archives,
+    catalog: new DocumentCatalogService(repo, env.MAX_LIST_LIMIT),
     collections: new CollectionService(repo),
     search: new SearchService(embedder, vectors, lexical, repo, env),
     keys: new ApiKeyService(repo),

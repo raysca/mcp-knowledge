@@ -23,6 +23,7 @@ export type AppEnv = {
   EMBEDDING_BATCH_SIZE: number;
   VECTOR_CANDIDATES: number;
   LEXICAL_CANDIDATES: number;
+  MAX_COLLAPSE_CANDIDATES: number;
   RRF_K: number;
   JOB_LEASE_MS: number;
   WORKER_CONCURRENCY: number;
@@ -44,6 +45,7 @@ export type AppEnv = {
   URL_FETCH_MAX_REDIRECTS: number;
   WEBHOOK_TIMEOUT_MS: number;
   DASHBOARD_PASSPHRASE?: string;
+  DOCUMENT_CURSOR_SECRET?: Uint8Array;
   MAX_MCP_DOCUMENT_CHARS: number;
   INGEST_DATA_DIR?: string;
   INGEST_DATA_MAX_DEPTH: number;
@@ -70,6 +72,18 @@ function boundedInteger(
   return value;
 }
 
+function documentCursorSecret(raw: string | undefined): Uint8Array | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(raw)) {
+    throw new Error("DOCUMENT_CURSOR_SECRET must be base64-encoded 32 bytes.");
+  }
+  const bytes = Buffer.from(raw, "base64");
+  if (bytes.byteLength !== 32 || bytes.toString("base64") !== raw) {
+    throw new Error("DOCUMENT_CURSOR_SECRET must be base64-encoded 32 bytes.");
+  }
+  return Uint8Array.from(bytes);
+}
+
 export function loadEnv(source: Record<string, string | undefined> = process.env): AppEnv {
   const profileRaw = source.APP_PROFILE ?? "local";
   if (profileRaw !== "local" && profileRaw !== "server") {
@@ -90,6 +104,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     (profile === "server" ? "s3" : "local");
 
   const dashboardPassphrase = source.DASHBOARD_PASSPHRASE?.trim() || undefined;
+  const cursorSecret = documentCursorSecret(source.DOCUMENT_CURSOR_SECRET);
   const ingestDataDir = source.INGEST_DATA_DIR?.trim() || undefined;
   // No network-position heuristics anywhere in auth: an unset passphrase means this instance
   // has no dashboard/API protection at all (matches today's zero-config `bun dev`), and a set
@@ -99,6 +114,9 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   // never boot wide open by accident.
   if (profile === "server" && !dashboardPassphrase) {
     throw new Error("DASHBOARD_PASSPHRASE is required when APP_PROFILE=server.");
+  }
+  if (profile === "server" && !cursorSecret) {
+    throw new Error("DOCUMENT_CURSOR_SECRET is required when APP_PROFILE=server.");
   }
 
   const databaseUrl =
@@ -128,6 +146,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     EMBEDDING_BATCH_SIZE: int(source.EMBEDDING_BATCH_SIZE, 32),
     VECTOR_CANDIDATES: int(source.VECTOR_CANDIDATES, 50),
     LEXICAL_CANDIDATES: int(source.LEXICAL_CANDIDATES, 50),
+    MAX_COLLAPSE_CANDIDATES: int(source.MAX_COLLAPSE_CANDIDATES, 200),
     RRF_K: int(source.RRF_K, 60),
     JOB_LEASE_MS: int(source.JOB_LEASE_MS, 300_000),
     WORKER_CONCURRENCY: int(
@@ -155,6 +174,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     URL_FETCH_MAX_REDIRECTS: int(source.URL_FETCH_MAX_REDIRECTS, 3),
     WEBHOOK_TIMEOUT_MS: int(source.WEBHOOK_TIMEOUT_MS, 10_000),
     DASHBOARD_PASSPHRASE: dashboardPassphrase,
+    DOCUMENT_CURSOR_SECRET: cursorSecret,
     MAX_MCP_DOCUMENT_CHARS: int(source.MAX_MCP_DOCUMENT_CHARS, 32_000),
     INGEST_DATA_DIR: ingestDataDir,
     INGEST_DATA_MAX_DEPTH: boundedInteger(

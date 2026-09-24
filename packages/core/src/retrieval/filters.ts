@@ -4,12 +4,12 @@ import type { FilterClause } from "../ports.ts";
 export type { FilterClause };
 export type FilterOp = FilterClause["op"];
 
-const FIELD = /^[A-Za-z0-9_.]+$/;
+const FIELD = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 const OPS: FilterOp[] = ["eq", "neq", "in", "exists", "gte", "lte"];
 
 type Scalar = string | number | boolean | null;
 function isScalar(v: unknown): v is Scalar {
-  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  return v === null || typeof v === "string" || (typeof v === "number" && Number.isFinite(v)) || typeof v === "boolean";
 }
 
 // ponytail: values reach the driver as bind parameters (packages/retrieval/src/where.ts) -
@@ -85,14 +85,24 @@ export function compileFilters(
 
     switch (cl.op) {
       case "eq":
-        parts.push(`(${extractC} = ? OR ${extractD} = ?)`);
-        args.push(path, String(cl.value), path, String(cl.value));
+        if (cl.value === null) {
+          if (isPg) {
+            parts.push("(jsonb_typeof(c.metadata #> ?::text[]) = 'null' OR jsonb_typeof(d.metadata #> ?::text[]) = 'null')");
+          } else {
+            // json_extract returns SQL NULL for both missing paths and JSON null.
+            parts.push("(json_type(c.metadata, ?) = 'null' OR json_type(d.metadata, ?) = 'null')");
+          }
+          args.push(path, path);
+        } else {
+          parts.push(`(${extractC} = ? OR ${extractD} = ?)`);
+          args.push(path, isPg ? String(cl.value) : cl.value, path, isPg ? String(cl.value) : cl.value);
+        }
         break;
       case "neq":
         parts.push(
           `(${extractC} IS DISTINCT FROM ? AND ${extractD} IS DISTINCT FROM ?)`,
         );
-        args.push(path, String(cl.value), path, String(cl.value));
+        args.push(path, isPg ? String(cl.value) : cl.value, path, isPg ? String(cl.value) : cl.value);
         break;
       case "exists": {
         const want = cl.value !== false;
@@ -114,14 +124,28 @@ export function compileFilters(
         args.push(path, cl.value, path, cl.value);
         break;
       case "in": {
-        const values = Array.isArray(cl.value) ? cl.value.map(String) : [];
+        const values = Array.isArray(cl.value) ? cl.value : [];
         if (values.length === 0) {
           parts.push("0 = 1");
           break;
         }
-        const ph = placeholders(values.length);
-        parts.push(`(${extractC} IN (${ph}) OR ${extractD} IN (${ph}))`);
-        args.push(path, ...values, path, ...values);
+        const nonNull = values.filter((value) => value !== null);
+        const matches: string[] = [];
+        if (nonNull.length > 0) {
+          const ph = placeholders(nonNull.length);
+          matches.push(`${extractC} IN (${ph})`, `${extractD} IN (${ph})`);
+          const serialized = isPg ? nonNull.map(String) : nonNull;
+          args.push(path, ...serialized, path, ...serialized);
+        }
+        if (values.includes(null)) {
+          if (isPg) {
+            matches.push("jsonb_typeof(c.metadata #> ?::text[]) = 'null'", "jsonb_typeof(d.metadata #> ?::text[]) = 'null'");
+          } else {
+            matches.push("json_type(c.metadata, ?) = 'null'", "json_type(d.metadata, ?) = 'null'");
+          }
+          args.push(path, path);
+        }
+        parts.push(`(${matches.join(" OR ")})`);
         break;
       }
     }

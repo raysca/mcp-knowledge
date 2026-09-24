@@ -33,6 +33,8 @@ export type EvaluationReport = {
     queries: number;
     queriesWithHits: number;
     retrievalRate: number;
+    falsePositiveRate: number;
+    policy: "any-returned-document";
   };
   latencyMs: {
     p50: number | null;
@@ -46,11 +48,13 @@ function metrics(results: EvaluationResult[]): AnswerableMetrics {
   let reciprocalRanks = 0;
 
   for (const result of results) {
-    const rank = result.documentIds.findIndex((id) => result.query.relevant.includes(id)) + 1;
+    const ids = [...new Set(result.documentIds)];
+    const relevant = new Set(result.query.relevant);
+    const rank = ids.findIndex((id) => relevant.has(id)) + 1;
     if (rank === 0) continue;
     reciprocalRanks += 1 / rank;
-    if (rank <= 5) hitsAt5++;
-    if (rank <= 10) hitsAt10++;
+    hitsAt5 += ids.slice(0, 5).filter((id) => relevant.has(id)).length / relevant.size;
+    hitsAt10 += ids.slice(0, 10).filter((id) => relevant.has(id)).length / relevant.size;
   }
 
   const queries = results.length;
@@ -78,6 +82,11 @@ export function deriveMetricFloors(runs: EvaluationFloors[]): EvaluationFloors {
 }
 
 export function evaluateQueries(results: EvaluationResult[]): EvaluationReport {
+  for (const { query } of results) {
+    if ((query.category === "no-answer") !== (query.relevant.length === 0)) {
+      throw new Error("Only no-answer queries may have no relevant documents.");
+    }
+  }
   const answerable = results.filter((result) => result.query.category !== "no-answer");
   const noAnswer = results.filter((result) => result.query.category === "no-answer");
   const byCategory: EvaluationReport["byCategory"] = {};
@@ -89,16 +98,20 @@ export function evaluateQueries(results: EvaluationResult[]): EvaluationReport {
     .map((result) => result.latencyMs)
     .filter((latency): latency is number => latency !== undefined)
     .sort((a, b) => a - b);
+  // Retrieval-only policy: any result for an unanswerable query is a false
+  // positive. There is no score threshold or downstream answer generation here.
+  const queriesWithHits = noAnswer.filter((result) => result.documentIds.length > 0).length;
+  const falsePositiveRate = noAnswer.length === 0 ? 0 : queriesWithHits / noAnswer.length;
 
   return {
     answerable: metrics(answerable),
     byCategory,
     noAnswer: {
       queries: noAnswer.length,
-      queriesWithHits: noAnswer.filter((result) => result.documentIds.length > 0).length,
-      retrievalRate: noAnswer.length === 0
-        ? 0
-        : noAnswer.filter((result) => result.documentIds.length > 0).length / noAnswer.length,
+      queriesWithHits,
+      retrievalRate: falsePositiveRate,
+      falsePositiveRate,
+      policy: "any-returned-document",
     },
     latencyMs: { p50: percentile(latencies, 0.5), p95: percentile(latencies, 0.95) },
   };

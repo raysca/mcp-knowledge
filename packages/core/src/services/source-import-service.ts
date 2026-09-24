@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { AppError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { logger, serializeError } from "../logger.ts";
@@ -36,6 +37,8 @@ type LivePathOwnership = {
   sha256: string;
 };
 
+type SourceImportCandidate = { relativePath: string; metadata?: Record<string, unknown> };
+
 export type SourceProcessResult = {
   outcome: "queued" | "unchanged" | "duplicate" | "unsupported" | "oversized" | "failed";
   documentId?: string;
@@ -71,12 +74,12 @@ export class SourceImportService {
   ) {}
 
   async process(
-    candidate: { relativePath: string },
+    candidate: SourceImportCandidate,
     scanCycle: string,
   ): Promise<SourceProcessResult> {
     const filename = basename(candidate.relativePath);
     let samePath: SourceFileRecord | null = null;
-    let samePathDocument: { id: string; sha256: string } | null = null;
+    let samePathDocument: { id: string; sha256: string; metadata: Record<string, unknown> } | null = null;
     try {
       this.throwIfAborted();
       samePath = await this.input.repo.getSourceFile(
@@ -141,7 +144,10 @@ export class SourceImportService {
     }
     this.throwIfAborted();
 
-    if (livePathOwnership && samePath?.sha256 === inspected.sha256) {
+    const metadata = { ...candidate.metadata, sourcePath: candidate.relativePath };
+    if (livePathOwnership && samePath?.sha256 === inspected.sha256 &&
+        // Compare the JSON representation persisted by the repository (e.g. -0 becomes 0).
+        isDeepStrictEqual(samePathDocument?.metadata, JSON.parse(JSON.stringify(metadata)))) {
       return this.recordOutcome({
         candidate,
         scanCycle,
@@ -203,6 +209,7 @@ export class SourceImportService {
 
       return await this.commitImport({
         candidate,
+        metadata,
         filename,
         scanCycle,
         inspected,
@@ -266,6 +273,7 @@ export class SourceImportService {
 
   private async commitImport(input: {
     candidate: { relativePath: string };
+    metadata: Record<string, unknown>;
     filename: string;
     scanCycle: string;
     inspected: { bytes: Uint8Array; sizeBytes: number; sha256: string };
@@ -305,7 +313,7 @@ export class SourceImportService {
           extension: extensionOf(input.filename),
           sizeBytes: input.inspected.sizeBytes,
           sha256: input.inspected.sha256,
-          metadata: {},
+          metadata: input.metadata,
           storageKey,
         },
       });
